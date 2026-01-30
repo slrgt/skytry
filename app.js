@@ -1,36 +1,329 @@
-import { BrowserOAuthClient } from '@atproto/oauth-client-browser';
-import { Agent } from '@atproto/api';
+(function () {
+  'use strict';
 
-const PLC_DIRECTORY = 'https://plc.directory';
-const STORAGE_KEYS = { saved: 'skytry_saved', blogs: 'skytry_blogs' };
+  const PLC_DIRECTORY = 'https://plc.directory';
+  const STORAGE_KEYS = { saved: 'skytry_saved', blogs: 'skytry_blogs' };
+  const PDS = 'https://bsky.social';
 
-let oac;
-let agent = null;
-let feedCursor = null;
-let currentBlogDid = null;
-let currentBlogPub = null;
+  let blueskyClient = null;
+  let feedCursor = null;
+  let currentBlogDid = null;
+  let currentBlogPub = null;
 
-function getAppBase() {
-  const origin = window.location.origin;
-  const path = window.location.pathname.replace(/\/index\.html$/i, '').replace(/\/?$/, '') || '';
-  return origin + path;
-}
+  function getAppBase() {
+    const origin = window.location.origin;
+    const path = window.location.pathname.replace(/\/index\.html$/i, '').replace(/\/?$/, '') || '';
+    return origin + path;
+  }
 
-function buildClientMetadata() {
-  const base = getAppBase();
-  return {
-    client_id: base + '/oauth/client-metadata.json',
-    client_name: 'Skytry',
-    client_uri: base + '/',
-    application_type: 'web',
-    redirect_uris: [base + '/'],
-    scope: 'atproto transition:generic',
-    grant_types: ['authorization_code', 'refresh_token'],
-    response_types: ['code'],
-    token_endpoint_auth_method: 'none',
-    dpop_bound_access_tokens: true,
-  };
-}
+  function _oauthBaseUrl() {
+    return getAppBase();
+  }
+  function _oauthClientId() {
+    return _oauthBaseUrl() + '/oauth/client-metadata.json';
+  }
+  function _oauthRedirectUri() {
+    const base = _oauthBaseUrl();
+    return base.endsWith('/') ? base : base + '/';
+  }
+
+  async function _sha256Bytes(data) {
+    const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+    const hash = await crypto.subtle.digest('SHA-256', bytes);
+    return new Uint8Array(hash);
+  }
+  function _base64urlEncode(bytes) {
+    const bin = typeof bytes === 'string' ? new TextEncoder().encode(bytes) : new Uint8Array(bytes);
+    let binary = '';
+    for (let i = 0; i < bin.length; i++) binary += String.fromCharCode(bin[i]);
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  async function _pkceChallenge(verifier) {
+    const hash = await _sha256Bytes(verifier);
+    return _base64urlEncode(hash);
+  }
+  async function _generateDpopKeypair() {
+    return await crypto.subtle.generateKey(
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      true,
+      ['sign', 'verify']
+    );
+  }
+  async function _exportKeyJwk(key) {
+    const jwk = await crypto.subtle.exportKey('jwk', key);
+    delete jwk.key_ops;
+    delete jwk.ext;
+    return jwk;
+  }
+  async function _importPrivateKeyJwk(jwk) {
+    return await crypto.subtle.importKey(
+      'jwk',
+      { ...jwk, key_ops: ['sign'] },
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      true,
+      ['sign']
+    );
+  }
+  async function _signJwtEs256(header, payload, privateKey) {
+    const enc = (obj) => _base64urlEncode(JSON.stringify(obj));
+    const headerB64 = enc(header);
+    const payloadB64 = enc(payload);
+    const message = new TextEncoder().encode(headerB64 + '.' + payloadB64);
+    const sig = await crypto.subtle.sign(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      privateKey,
+      message
+    );
+    return headerB64 + '.' + payloadB64 + '.' + _base64urlEncode(new Uint8Array(sig));
+  }
+  async function _buildDpopProof(htm, htu, nonce, privateKey, publicKeyJwk, accessTokenHash) {
+    if (!publicKeyJwk || !publicKeyJwk.crv) throw new Error('DPoP requires public key JWK');
+    const header = { typ: 'dpop+jwt', alg: 'ES256', jwk: publicKeyJwk };
+    const payload = {
+      jti: crypto.randomUUID(),
+      htm,
+      htu,
+      iat: Math.floor(Date.now() / 1000),
+      ...(nonce ? { nonce } : {}),
+      ...(accessTokenHash ? { ath: accessTokenHash } : {}),
+    };
+    return await _signJwtEs256(header, payload, privateKey);
+  }
+
+  async function startBlueskyOAuth() {
+    const clientId = _oauthClientId();
+    const redirectUri = _oauthRedirectUri();
+    const pdsUrl = PDS;
+    const resResource = await fetch(pdsUrl.replace(/\/$/, '') + '/.well-known/oauth-protected-resource');
+    if (!resResource.ok) throw new Error('Could not get PDS metadata');
+    const resourceMeta = await resResource.json();
+    const authServerUrl = resourceMeta.authorization_servers?.[0] || pdsUrl;
+    const resAuth = await fetch(authServerUrl.replace(/\/$/, '') + '/.well-known/oauth-authorization-server');
+    if (!resAuth.ok) throw new Error('Could not get OAuth server metadata');
+    const authMeta = await resAuth.json();
+    const parEndpoint = authMeta.pushed_authorization_request_endpoint;
+    const authEndpoint = authMeta.authorization_endpoint;
+    const tokenEndpoint = authMeta.token_endpoint;
+    const issuer = authMeta.issuer;
+
+    const stateArr = new Uint8Array(28);
+    crypto.getRandomValues(stateArr);
+    const state = Array.from(stateArr, (b) => ('0' + b.toString(16)).slice(-2)).join('');
+    const verifierArr = new Uint8Array(32);
+    crypto.getRandomValues(verifierArr);
+    const codeVerifier = _base64urlEncode(verifierArr);
+    const codeChallenge = await _pkceChallenge(codeVerifier);
+
+    const keypair = await _generateDpopKeypair();
+    const privateJwk = await _exportKeyJwk(keypair.privateKey);
+    const publicJwk = await _exportKeyJwk(keypair.publicKey);
+
+    const scope = 'atproto transition:generic';
+    let parBody = new URLSearchParams({
+      response_type: 'code',
+      code_challenge_method: 'S256',
+      scope,
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      code_challenge: codeChallenge,
+      state,
+    });
+    let parRes = await fetch(parEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: parBody.toString(),
+    });
+    let dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce');
+    if (parRes.status === 401 && dpopNonce) {
+      const privateKey = await _importPrivateKeyJwk(privateJwk);
+      const dpopProof = await _buildDpopProof('POST', parEndpoint, dpopNonce, privateKey, publicJwk);
+      parRes = await fetch(parEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', DPoP: dpopProof },
+        body: parBody.toString(),
+      });
+    }
+    if (!parRes.ok) {
+      const err = await parRes.json().catch(() => ({}));
+      throw new Error(err.error_description || err.error || 'PAR failed');
+    }
+    const parData = await parRes.json();
+    const requestUri = parData.request_uri;
+    if (!requestUri) throw new Error('No request_uri from PAR');
+
+    sessionStorage.setItem('skytry-oauth-state', state);
+    sessionStorage.setItem('skytry-oauth-code-verifier', codeVerifier);
+    sessionStorage.setItem('skytry-oauth-token-endpoint', tokenEndpoint);
+    sessionStorage.setItem('skytry-oauth-issuer', issuer);
+    sessionStorage.setItem('skytry-oauth-dpop-nonce', parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce') || '');
+    sessionStorage.setItem('skytry-oauth-dpop-private-jwk', JSON.stringify(privateJwk));
+    sessionStorage.setItem('skytry-oauth-dpop-public-jwk', JSON.stringify(publicJwk));
+
+    const redirectUrl = authEndpoint + '?client_id=' + encodeURIComponent(clientId) + '&request_uri=' + encodeURIComponent(requestUri);
+    window.location.href = redirectUrl;
+  }
+
+  async function handleOAuthCallback() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    const state = urlParams.get('state');
+    const storedState = sessionStorage.getItem('skytry-oauth-state');
+    const codeVerifier = sessionStorage.getItem('skytry-oauth-code-verifier');
+    const tokenEndpoint = sessionStorage.getItem('skytry-oauth-token-endpoint');
+    const dpopNonce = sessionStorage.getItem('skytry-oauth-dpop-nonce');
+    const privateJwk = sessionStorage.getItem('skytry-oauth-dpop-private-jwk');
+
+    if (code || state) {
+      window.history.replaceState({}, document.title, window.location.pathname + (window.location.pathname.endsWith('/') ? '' : '/') || '/');
+    }
+    if (!code || !state || state !== storedState || !codeVerifier || !tokenEndpoint || !privateJwk) return false;
+
+    const clientId = _oauthClientId();
+    const redirectUri = _oauthRedirectUri();
+    const privateKey = await _importPrivateKeyJwk(JSON.parse(privateJwk));
+    const publicJwk = JSON.parse(sessionStorage.getItem('skytry-oauth-dpop-public-jwk') || '{}');
+    const dpopProof = await _buildDpopProof('POST', tokenEndpoint, dpopNonce || undefined, privateKey, publicJwk);
+
+    const tokenBody = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: clientId,
+      code_verifier: codeVerifier,
+    });
+    const tokenRes = await fetch(tokenEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', DPoP: dpopProof },
+      body: tokenBody.toString(),
+    });
+    if (!tokenRes.ok) {
+      const err = await tokenRes.json().catch(() => ({}));
+      throw new Error(err.error_description || err.error || 'Token exchange failed');
+    }
+    const data = await tokenRes.json();
+    const accessToken = data.access_token;
+    const refreshToken = data.refresh_token;
+    const sub = data.sub;
+    if (!accessToken || !refreshToken || !sub) throw new Error('Invalid token response');
+
+    localStorage.setItem('skytry-oauth-dpop-private-jwk', privateJwk);
+    localStorage.setItem('skytry-oauth-dpop-public-jwk', sessionStorage.getItem('skytry-oauth-dpop-public-jwk'));
+    blueskyClient = {
+      did: sub,
+      handle: null,
+      accessJwt: accessToken,
+      refreshJwt: refreshToken,
+      tokenTimestamp: Date.now(),
+    };
+    localStorage.setItem('bluesky-session', JSON.stringify({
+      handle: blueskyClient.handle,
+      did: blueskyClient.did,
+      refreshJwt: blueskyClient.refreshJwt,
+      oauth: true,
+    }));
+    sessionStorage.removeItem('skytry-oauth-state');
+    sessionStorage.removeItem('skytry-oauth-code-verifier');
+    sessionStorage.removeItem('skytry-oauth-token-endpoint');
+    sessionStorage.removeItem('skytry-oauth-issuer');
+    sessionStorage.removeItem('skytry-oauth-dpop-nonce');
+    sessionStorage.removeItem('skytry-oauth-dpop-private-jwk');
+    sessionStorage.removeItem('skytry-oauth-dpop-public-jwk');
+    return true;
+  }
+
+  async function _oauthRefresh() {
+    const session = JSON.parse(localStorage.getItem('bluesky-session') || '{}');
+    const tokenEndpoint = PDS + '/oauth/token';
+    const clientId = _oauthClientId();
+    const privateJwk = localStorage.getItem('skytry-oauth-dpop-private-jwk');
+    const publicJwk = localStorage.getItem('skytry-oauth-dpop-public-jwk');
+    if (!session.refreshJwt || !privateJwk || !publicJwk) throw new Error('OAuth session incomplete');
+    const privateKey = await _importPrivateKeyJwk(JSON.parse(privateJwk));
+    const publicKeyJwk = JSON.parse(publicJwk);
+    let nonce = localStorage.getItem('skytry-dpop-nonce') || '';
+    let dpopProof = await _buildDpopProof('POST', tokenEndpoint, nonce || undefined, privateKey, publicKeyJwk);
+    let res = await fetch(tokenEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', DPoP: dpopProof },
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: session.refreshJwt, client_id: clientId }).toString(),
+    });
+    if (res.status === 401) {
+      nonce = res.headers.get('dpop-nonce') || res.headers.get('DPoP-Nonce') || '';
+      if (nonce) {
+        localStorage.setItem('skytry-dpop-nonce', nonce);
+        dpopProof = await _buildDpopProof('POST', tokenEndpoint, nonce, privateKey, publicKeyJwk);
+        res = await fetch(tokenEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', DPoP: dpopProof },
+          body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: session.refreshJwt, client_id: clientId }).toString(),
+        });
+      }
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error_description || err.error || 'Token refresh failed');
+    }
+    const data = await res.json();
+    const newNonce = res.headers.get('dpop-nonce') || res.headers.get('DPoP-Nonce');
+    if (newNonce) localStorage.setItem('skytry-dpop-nonce', newNonce);
+    blueskyClient = {
+      did: session.did,
+      handle: session.handle,
+      accessJwt: data.access_token,
+      refreshJwt: data.refresh_token,
+      tokenTimestamp: Date.now(),
+    };
+    session.refreshJwt = data.refresh_token;
+    localStorage.setItem('bluesky-session', JSON.stringify(session));
+  }
+
+  async function ensureValidToken() {
+    if (!blueskyClient?.refreshJwt) return;
+    const age = Date.now() - (blueskyClient.tokenTimestamp || 0);
+    if (age < 4 * 60 * 1000) return;
+    await _oauthRefresh();
+  }
+
+  async function _pdsFetch(url, options = {}) {
+    if (!blueskyClient?.accessJwt) throw new Error('Not connected');
+    await ensureValidToken();
+    const privateJwk = localStorage.getItem('skytry-oauth-dpop-private-jwk');
+    const publicJwk = localStorage.getItem('skytry-oauth-dpop-public-jwk');
+    if (!privateJwk || !publicJwk) throw new Error('OAuth DPoP key missing');
+    const privateKey = await _importPrivateKeyJwk(JSON.parse(privateJwk));
+    const publicKeyJwk = JSON.parse(publicJwk);
+    const accessToken = blueskyClient.accessJwt;
+    const accessTokenHash = _base64urlEncode(await _sha256Bytes(accessToken));
+    let nonce = localStorage.getItem('skytry-dpop-nonce') || '';
+    const method = (options.method || 'GET').toUpperCase();
+    const htu = url.split('#')[0];
+    let dpopProof = await _buildDpopProof(method, htu, nonce || undefined, privateKey, publicKeyJwk, accessTokenHash);
+    let headers = { ...options.headers, Authorization: 'DPoP ' + accessToken, DPoP: dpopProof };
+    let res = await fetch(url, { ...options, headers });
+    if (res.status === 401) {
+      const newNonce = res.headers.get('dpop-nonce') || res.headers.get('DPoP-Nonce');
+      if (newNonce) {
+        localStorage.setItem('skytry-dpop-nonce', newNonce);
+        dpopProof = await _buildDpopProof(method, htu, newNonce, privateKey, publicKeyJwk, accessTokenHash);
+        headers = { ...options.headers, Authorization: 'DPoP ' + accessToken, DPoP: dpopProof };
+        res = await fetch(url, { ...options, headers });
+      }
+    }
+    return res;
+  }
+
+  async function loadBlueskyConnection() {
+    try {
+      const saved = localStorage.getItem('bluesky-session');
+      if (!saved) return;
+      const session = JSON.parse(saved);
+      if (!session.refreshJwt || !session.oauth) return;
+      if (!localStorage.getItem('skytry-oauth-dpop-private-jwk')) return;
+      await _oauthRefresh();
+    } catch (_) {
+      blueskyClient = null;
+    }
+  }
 
 function getSaved() {
   try {
@@ -269,10 +562,11 @@ const dom = {
 function renderFeed(append) {
   const list = dom.feedList;
   if (!append) list.innerHTML = '';
-  agent.getTimeline({ cursor: feedCursor || undefined, limit: 30 })
-    .then((res) => {
-      const data = res?.data ?? res;
-      if (!data) throw new Error('Failed to load feed');
+  const q = new URLSearchParams({ limit: '30' });
+  if (feedCursor) q.set('cursor', feedCursor);
+  _pdsFetch(PDS + '/xrpc/app.bsky.feed.getTimeline?' + q.toString())
+    .then((res) => res.json())
+    .then((data) => {
       feedCursor = data.cursor || null;
       const posts = data.feed || [];
       posts.forEach((post) => list.appendChild(renderPost(post, { showSave: true })));
@@ -289,7 +583,7 @@ function renderFeed(append) {
 }
 
 function loadFeed() {
-  if (!agent) {
+  if (!blueskyClient) {
     show(dom.feedLoginPrompt);
     hide(dom.feedList);
     hide(dom.feedMore);
@@ -400,20 +694,27 @@ function renderSavedTab() {
 }
 
 function renderSettings() {
-  if (agent) {
+  if (blueskyClient) {
     hide(dom.settingsLoggedOut);
     show(dom.settingsLoggedIn);
-    agent.getProfile({ actor: agent.accountDid })
-      .then((res) => {
-        if (res.success && res.data?.handle) {
-          dom.settingsHandle.textContent = '@' + res.data.handle;
-        } else {
-          dom.settingsHandle.textContent = agent.accountDid || '—';
-        }
-      })
-      .catch(() => {
-        dom.settingsHandle.textContent = agent.accountDid || '—';
-      });
+    const handle = blueskyClient.handle;
+    if (handle) {
+      dom.settingsHandle.textContent = '@' + handle;
+    } else {
+      dom.settingsHandle.textContent = blueskyClient.did || '—';
+      _pdsFetch(PDS + '/xrpc/app.bsky.actor.getProfile?actor=' + encodeURIComponent(blueskyClient.did))
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.handle) {
+            blueskyClient.handle = data.handle;
+            const s = JSON.parse(localStorage.getItem('bluesky-session') || '{}');
+            s.handle = data.handle;
+            localStorage.setItem('bluesky-session', JSON.stringify(s));
+            dom.settingsHandle.textContent = '@' + data.handle;
+          }
+        })
+        .catch(() => {});
+    }
   } else {
     show(dom.settingsLoggedOut);
     hide(dom.settingsLoggedIn);
@@ -443,119 +744,101 @@ function showLoginError(msg) {
 async function doLogin() {
   const btn = document.getElementById('btn-login');
   showLoginError('');
-  if (!oac) {
-    showLoginError("Sign-in isn’t ready. Refresh the page and try again.");
-    return;
-  }
   if (btn) btn.disabled = true;
   try {
-    await oac.signIn('https://bsky.social', {
-      state: 'skytry',
-      signal: new AbortController().signal,
-    });
+    await startBlueskyOAuth();
   } catch (err) {
     if (btn) btn.disabled = false;
     const msg = err?.message || String(err);
-    if (msg.includes('abort') || msg.includes('cancel')) return;
-    showLoginError(
-      msg.includes('fetch') || msg.includes('CORS')
-        ? "Network error. If you’re on GitHub Pages, make sure oauth/client-metadata.json uses your real site URL (see README)."
-        : "Sign-in failed: " + (msg || "unknown error")
-    );
+    showLoginError(msg.includes('PAR') || msg.includes('redirect') ? 'Sign-in failed. Use the app from its published URL (see README).' : 'Sign-in failed: ' + msg);
   }
 }
 
+
 function doLogout() {
-  if (agent && oac) {
-    oac.revoke(agent.accountDid).catch(() => {});
-  }
-  agent = null;
+  blueskyClient = null;
+  localStorage.removeItem('bluesky-session');
+  localStorage.removeItem('skytry-oauth-dpop-private-jwk');
+  localStorage.removeItem('skytry-oauth-dpop-public-jwk');
+  localStorage.removeItem('skytry-dpop-nonce');
   loadFeed();
   renderSettings();
 }
 
-document.getElementById('btn-login').addEventListener('click', doLogin);
-document.getElementById('btn-settings-login').addEventListener('click', doLogin);
-document.getElementById('btn-logout').addEventListener('click', doLogout);
+function setupEventListeners() {
+  const btnLogin = document.getElementById('btn-login');
+  const btnSettingsLogin = document.getElementById('btn-settings-login');
+  const btnLogout = document.getElementById('btn-logout');
+  if (btnLogin) btnLogin.addEventListener('click', doLogin);
+  if (btnSettingsLogin) btnSettingsLogin.addEventListener('click', doLogin);
+  if (btnLogout) btnLogout.addEventListener('click', doLogout);
 
-document.querySelectorAll('.tab-bar-item').forEach((btn) => {
-  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
-});
-
-document.getElementById('btn-refresh').addEventListener('click', () => {
-  if (document.getElementById('tab-feed').classList.contains('active')) {
-    feedCursor = null;
-    show(dom.feedLoading);
-    renderFeed(false);
-  }
-});
-
-dom.feedMore.addEventListener('click', () => {
-  show(dom.feedLoading);
-  renderFeed(true);
-});
-
-dom.btnAddBlog.addEventListener('click', addBlogFromUrl);
-dom.blogUrl.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') addBlogFromUrl();
-});
-document.querySelectorAll('[data-add-blog]').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    const url = btn.dataset.addBlog || '';
-    if (!url) return;
-    dom.blogUrl.value = url;
-    addBlogFromUrl();
+  document.querySelectorAll('.tab-bar-item').forEach((btn) => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });
-});
-dom.blogDocsBack.addEventListener('click', () => {
-  dom.blogDocs.classList.add('hidden');
-  dom.blogsList.classList.remove('hidden');
-});
+
+  const btnRefresh = document.getElementById('btn-refresh');
+  if (btnRefresh) btnRefresh.addEventListener('click', () => {
+    if (document.getElementById('tab-feed').classList.contains('active')) {
+      feedCursor = null;
+      show(dom.feedLoading);
+      renderFeed(false);
+    }
+  });
+
+  if (dom.feedMore) dom.feedMore.addEventListener('click', () => {
+    show(dom.feedLoading);
+    renderFeed(true);
+  });
+
+  if (dom.btnAddBlog) dom.btnAddBlog.addEventListener('click', addBlogFromUrl);
+  if (dom.blogUrl) dom.blogUrl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addBlogFromUrl();
+  });
+  document.querySelectorAll('[data-add-blog]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const url = btn.dataset.addBlog || '';
+      if (!url) return;
+      dom.blogUrl.value = url;
+      addBlogFromUrl();
+    });
+  });
+  if (dom.blogDocsBack) dom.blogDocsBack.addEventListener('click', () => {
+    dom.blogDocs.classList.add('hidden');
+    dom.blogsList.classList.remove('hidden');
+  });
+}
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
 async function init() {
-  const isLoopback = ['127.0.0.1', 'localhost', ''].includes(window.location.hostname);
-
-  try {
-    if (isLoopback) {
-      oac = new BrowserOAuthClient({
-        handleResolver: 'https://bsky.social',
-        clientMetadata: undefined,
-      });
-    } else {
-      oac = new BrowserOAuthClient({
-        handleResolver: 'https://bsky.social',
-        clientMetadata: buildClientMetadata(),
-      });
+  const urlParams = new URLSearchParams(window.location.search);
+  const code = urlParams.get('code');
+  const state = urlParams.get('state');
+  if (code && state) {
+    try {
+      const ok = await handleOAuthCallback();
+      if (ok) {
+        window.history.replaceState({}, document.title, window.location.pathname + (window.location.pathname.endsWith('/') ? '' : '/') || '/');
+      }
+    } catch (err) {
+      console.error('OAuth callback failed', err);
+      showLoginError('Sign-in callback failed. Try again.');
     }
-
-    oac.addEventListener('deleted', () => {
-      agent = null;
-      loadFeed();
-      renderSettings();
-    });
-
-    const result = await oac.init();
-    if (result) {
-      const { session } = result;
-      agent = new Agent(session);
-    }
-  } catch (err) {
-    console.error('OAuth init failed', err);
-    showLoginError("OAuth init failed. Refresh the page.");
   }
 
-  if (!isLoopback && !agent) {
+  await loadBlueskyConnection();
+
+  if (!blueskyClient) {
     try {
       const res = await fetch(getAppBase() + '/oauth/client-metadata.json');
       if (res.ok) {
         const text = await res.text();
         if (text.includes('YOUR_GITHUB_PAGES_BASE')) {
           showLoginError(
-            'Sign-in requires deploying with this repo’s GitHub Actions workflow so Bluesky can load your app metadata. In repo Settings → Pages, set Source to "GitHub Actions". See README.'
+            'Sign-in requires deploying with this repo\'s GitHub Actions workflow so Bluesky can load your app metadata. In repo Settings -> Pages, set Source to "GitHub Actions". See README.'
           );
         }
       }
@@ -568,4 +851,14 @@ async function init() {
   renderSettings();
 }
 
-init();
+// Run setup and init when DOM is ready (same pattern as wikisky/xoxowiki)
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    setupEventListeners();
+    init();
+  });
+} else {
+  setupEventListeners();
+  init();
+}
+})();
