@@ -31,10 +31,12 @@ On `http://127.0.0.1:<port>` or `http://localhost:<port>`, the app uses the OAut
 
 Sign-in uses [OAuth for AT Protocol](https://docs.bsky.app/blog/oauth-atproto): you click **Sign in with Bluesky**, get redirected to Bluesky (or your PDS), sign in there, and are sent back to Skytry. No app password or handle/password form in the app.
 
+**Why wikisky/XoxoWiki can log in and Skytry might not:** Wikisky commits its OAuth metadata file with the real app URL in the repo (e.g. `https://slrgt.github.io/wikisky/oauth-client-metadata.json`), so any deploy serves the correct `client_id` and `redirect_uris` to Bluesky. Skytry keeps a placeholder in the repo and relies on the **GitHub Actions** workflow to overwrite `oauth/client-metadata.json` with your repo URL when it runs—so you must set Pages **Source** to **GitHub Actions** and run the workflow (push to `main` or run it from the Actions tab) at least once. Skytry also uses known bsky.social OAuth endpoints instead of fetching `.well-known` from the browser, which avoids CORS/404 issues on GitHub Pages.
+
 ## Tech
 
-- Static PWA: HTML, CSS, vanilla JS (ES modules).
-- OAuth: [@atproto/oauth-client-browser](https://www.npmjs.com/package/@atproto/oauth-client-browser) (PKCE, DPoP), [@atproto/api](https://www.npmjs.com/package/@atproto/api) `Agent` for feed.
+- Static PWA: HTML, CSS, vanilla JS (no build step).
+- OAuth: manual PAR + PKCE + DPoP (same flow as wikisky), no SDK; feed via `fetch` to PDS xrpc.
 - standard.site: `/.well-known/site.standard.publication` → AT-URI → DID → PDS (plc.directory) → `com.atproto.repo.listRecords` for documents.
 
 ## License

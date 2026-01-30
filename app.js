@@ -149,14 +149,18 @@
       body: parBody.toString(),
     });
     let dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce');
-    if (parRes.status === 401 && dpopNonce) {
-      const privateKey = await _importPrivateKeyJwk(privateJwk);
-      const dpopProof = await _buildDpopProof('POST', parEndpoint, dpopNonce, privateKey, publicJwk);
-      parRes = await fetch(parEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', DPoP: dpopProof },
-        body: parBody.toString(),
-      });
+    if (parRes.status === 401) {
+      const errBody = await parRes.json().catch(() => ({}));
+      if (errBody.error === 'use_dpop_nonce') dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce');
+      if (dpopNonce) {
+        const privateKey = await _importPrivateKeyJwk(privateJwk);
+        const dpopProof = await _buildDpopProof('POST', parEndpoint, dpopNonce, privateKey, publicJwk);
+        parRes = await fetch(parEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', DPoP: dpopProof },
+          body: parBody.toString(),
+        });
+      }
     }
     if (!parRes.ok) {
       const err = await parRes.json().catch(() => ({}));
@@ -182,9 +186,11 @@
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get('code');
     const state = urlParams.get('state');
+    const iss = urlParams.get('iss');
     const storedState = sessionStorage.getItem('skytry-oauth-state');
     const codeVerifier = sessionStorage.getItem('skytry-oauth-code-verifier');
     const tokenEndpoint = sessionStorage.getItem('skytry-oauth-token-endpoint');
+    const issuer = sessionStorage.getItem('skytry-oauth-issuer');
     const dpopNonce = sessionStorage.getItem('skytry-oauth-dpop-nonce');
     const privateJwk = sessionStorage.getItem('skytry-oauth-dpop-private-jwk');
 
@@ -192,6 +198,7 @@
       window.history.replaceState({}, document.title, window.location.pathname + (window.location.pathname.endsWith('/') ? '' : '/') || '/');
     }
     if (!code || !state || state !== storedState || !codeVerifier || !tokenEndpoint || !privateJwk) return false;
+    if (iss && issuer && iss !== issuer) return false;
 
     const clientId = _oauthClientId();
     const redirectUri = _oauthRedirectUri();
