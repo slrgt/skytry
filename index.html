@@ -527,16 +527,18 @@
                 <button class="modal-close">&times;</button>
             </div>
             <div class="modal-body">
-                <p>Connect to Bluesky (OAuth) to sync your wiki across devices. You'll be redirected to Bluesky to sign in securely.</p>
-                <div class="form-group bluesky-handle-group">
-                    <label for="bluesky-handle">Bluesky Handle:</label>
-                    <input type="text" id="bluesky-handle" placeholder="Type your username…" autofocus autocomplete="off">
-                    <div id="bluesky-handle-suggestions" class="bluesky-handle-suggestions" role="listbox" aria-label="Handle suggestions" style="display: none;"></div>
-                </div>
-                <div class="modal-actions">
-                    <button id="connect-bluesky-btn" class="btn-primary">Continue to Bluesky Login</button>
-                    <button id="cancel-bluesky" class="btn-secondary">Cancel</button>
-                </div>
+                <p>Connect to Bluesky (OAuth) to sync your wiki across devices. You'll be redirected to Bluesky to sign in securely. Works from any page (e.g. #main, #browse).</p>
+                <form id="bluesky-login-form" class="bluesky-login-form" autocomplete="off">
+                    <div class="form-group bluesky-handle-group">
+                        <label for="bluesky-handle">Bluesky Handle:</label>
+                        <input type="text" id="bluesky-handle" placeholder="Type your username…" autofocus autocomplete="off">
+                        <div id="bluesky-handle-suggestions" class="bluesky-handle-suggestions" role="listbox" aria-label="Handle suggestions" style="display: none;"></div>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="submit" id="connect-bluesky-btn" class="btn-primary">Continue to Bluesky Login</button>
+                        <button type="button" id="cancel-bluesky" class="btn-secondary">Cancel</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>

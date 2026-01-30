@@ -419,7 +419,8 @@ class WikiStorage {
         const privateJwk = sessionStorage.getItem('bluesky-oauth-dpop-private-jwk');
 
         if (code || state) {
-            window.history.replaceState({}, document.title, window.location.pathname || '/');
+            const path = window.location.pathname || '/';
+            window.history.replaceState({}, document.title, path + (path.endsWith('/') ? '' : '/') + '#main');
         }
         if (!code || !state || state !== storedState || !codeVerifier || !tokenEndpoint || !privateJwk) {
             if (code || state) console.error('OAuth callback: missing or invalid state/params');

@@ -282,8 +282,13 @@ class WikiApp {
 
         // Bluesky connection (handled in menu section above)
         
-        const connectBlueskySubmitBtn = document.getElementById('connect-bluesky-btn');
-        if (connectBlueskySubmitBtn) connectBlueskySubmitBtn.addEventListener('click', () => this.connectBluesky());
+        const blueskyLoginForm = document.getElementById('bluesky-login-form');
+        if (blueskyLoginForm) {
+            blueskyLoginForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.connectBluesky();
+            });
+        }
         
         const cancelBlueskyBtn = document.getElementById('cancel-bluesky');
         if (cancelBlueskyBtn) cancelBlueskyBtn.addEventListener('click', () => this.closeBlueskyModal());
@@ -3094,10 +3099,10 @@ class WikiApp {
         } catch (error) {
             const msg = (error && error.message) ? error.message : 'Unknown error';
             const appUrlWithSlash = (this.storage._oauthBaseUrl() + '/').replace(/\/\/$/, '/');
-            if (/redirect_uri|PAR|invalid/i.test(msg)) {
-                alert('Bluesky login failed. Use this app from its actual URL to sign in: ' + appUrlWithSlash);
+            if (/redirect_uri|redirect_uri_mismatch|redirect\s*uri/i.test(msg)) {
+                alert('Bluesky login failed (redirect URL). Use this app from: ' + appUrlWithSlash + '\n\nHash routes like #main or #browse are fine.');
             } else {
-                alert('Failed to start Bluesky login: ' + msg);
+                alert('Bluesky login failed: ' + msg);
             }
         } finally {
             if (btn) {
