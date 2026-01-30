@@ -832,17 +832,25 @@ async function init() {
   await loadBlueskyConnection();
 
   if (!blueskyClient) {
-    try {
-      const res = await fetch(getAppBase() + '/oauth/client-metadata.json');
-      if (res.ok) {
-        const text = await res.text();
-        if (text.includes('YOUR_GITHUB_PAGES_BASE')) {
-          showLoginError(
-            'OAuth metadata still has a placeholder URL. Fix: Repo → Settings → Pages → set Source to "GitHub Actions", then push to main or run the workflow. The workflow writes the real URL into oauth/client-metadata.json before deploy. See README.'
-          );
+    const origin = window.location.origin;
+    const isGitHubPages = /^https:\/\/[^/]+\.github\.io$/.test(origin);
+    if (!isGitHubPages) {
+      showLoginError(
+        'Sign in only works when you open the app from its published GitHub Pages URL (e.g. https://YOUR_USERNAME.github.io/skytry/). Deploy with GitHub Actions (see README), then open that URL.'
+      );
+    } else {
+      try {
+        const res = await fetch(getAppBase() + '/oauth/client-metadata.json');
+        if (res.ok) {
+          const text = await res.text();
+          if (text.includes('YOUR_GITHUB_PAGES_BASE')) {
+            showLoginError(
+              'OAuth metadata still has a placeholder. In the repo: Actions → "Deploy to GitHub Pages" → Run workflow. Wait for it to finish, then hard-refresh this page. To verify: open /oauth/client-metadata.json in a new tab—it should show your real URL. See README.'
+            );
+          }
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
   }
 
   loadFeed();
