@@ -322,6 +322,20 @@ class WikiStorage {
 
         const scopePreferred = 'atproto repo:site.standard.document repo:com.atproto.repo.record';
         const scopeFallback = 'atproto transition:generic';
+        const privateKey = await this._importPrivateKeyJwk(privateJwk);
+
+        const doParRequest = async (body, nonce) => {
+            const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+            if (nonce) {
+                const dpopProof = await this._buildDpopProof('POST', parEndpoint, nonce, privateKey, publicJwk);
+                headers['DPoP'] = dpopProof;
+            } else {
+                const dpopProof = await this._buildDpopProof('POST', parEndpoint, undefined, privateKey, publicJwk);
+                headers['DPoP'] = dpopProof;
+            }
+            return fetch(parEndpoint, { method: 'POST', headers, body });
+        };
+
         let parBody = new URLSearchParams({
             response_type: 'code',
             code_challenge_method: 'S256',
@@ -332,26 +346,15 @@ class WikiStorage {
             state,
             login_hint: handle
         });
-        let parRes = await fetch(parEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: parBody.toString()
-        });
+        let parRes = await doParRequest(parBody.toString(), undefined);
         let dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce');
         if (parRes.status === 401) {
             const errBody = await parRes.json().catch(() => ({}));
             if (errBody.error === 'use_dpop_nonce') dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce');
-            if (!dpopNonce) throw new Error('PAR requires DPoP');
-            const privateKey = await this._importPrivateKeyJwk(privateJwk);
-            const dpopProof = await this._buildDpopProof('POST', parEndpoint, dpopNonce, privateKey, publicJwk);
-            parRes = await fetch(parEndpoint, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'DPoP': dpopProof
-                },
-                body: parBody.toString()
-            });
+            if (dpopNonce) {
+                parRes = await doParRequest(parBody.toString(), dpopNonce);
+                dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce') || dpopNonce;
+            }
         }
         if (!parRes.ok) {
             const err = await parRes.json().catch(() => ({}));
@@ -367,19 +370,10 @@ class WikiStorage {
                     state,
                     login_hint: handle
                 });
-                parRes = await fetch(parEndpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: parBody.toString()
-                });
+                parRes = await doParRequest(parBody.toString(), dpopNonce || undefined);
                 if (parRes.status === 401 && parRes.headers.get('dpop-nonce')) {
-                    const privateKey = await this._importPrivateKeyJwk(privateJwk);
-                    const dpopProof = await this._buildDpopProof('POST', parEndpoint, parRes.headers.get('dpop-nonce'), privateKey, publicJwk);
-                    parRes = await fetch(parEndpoint, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'DPoP': dpopProof },
-                        body: parBody.toString()
-                    });
+                    dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce');
+                    parRes = await doParRequest(parBody.toString(), dpopNonce);
                 }
             }
             if (!parRes.ok) {
