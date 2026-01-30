@@ -358,7 +358,8 @@ class WikiStorage {
             redirect_uri: redirectUri,
             code_challenge: codeChallenge,
             state,
-            login_hint: normalizedHandle
+            login_hint: normalizedHandle,
+            prompt: 'login'
         });
 
         const parseParError = async (res) => {
