@@ -11,22 +11,17 @@ Designed to look like a simple iOS app: dark theme, safe areas, bottom tab bar, 
 
 ## Host on GitHub Pages
 
-1. **Generate OAuth client metadata** (required for sign-in to work)  
-   Bluesky’s OAuth server loads your app’s metadata from a URL. That file must contain your real site URL. From the repo root, run:
+Anyone can fork or clone this repo and deploy without putting usernames or URLs in the code. The GitHub Actions workflow generates OAuth client metadata from the repo URL automatically.
 
-   ```bash
-   GITHUB_PAGES_BASE=https://YOUR_USERNAME.github.io/skytry node scripts/generate-oauth-metadata.js
-   ```
+1. Push this repo to GitHub (or fork it).
 
-   Replace `YOUR_USERNAME` and `skytry` with your GitHub username and repo name. This overwrites `oauth/client-metadata.json` with the correct `client_id` and `redirect_uris`.
+2. **Settings → Pages** → under “Build and deployment”, **Source** → **GitHub Actions**.
 
-2. Push this repo to GitHub (including the updated `oauth/client-metadata.json`).
+3. Push to `main` (or run the workflow from the Actions tab). The workflow builds the site and generates `oauth/client-metadata.json` from your repo’s URL (`https://<owner>.github.io/<repo>/`), then deploys. No manual config.
 
-3. **Settings → Pages** → Source: **Deploy from a branch** → Branch: `main`, folder: **/ (root)** → Save.
+4. Open your Pages URL and use **Sign in with Bluesky**. You’ll be sent to Bluesky’s OAuth page to authorize; no app password needed.
 
-4. Open `https://<username>.github.io/skytry/` and use **Sign in with Bluesky**. You’ll be sent to Bluesky’s OAuth page to authorize; no app password needed.
-
-   If sign-in does nothing or fails, the app will show a message: run the script above with your real site URL, commit the new `oauth/client-metadata.json`, and push again.
+If you previously used “Deploy from a branch”, switch to **GitHub Actions** so the workflow can generate the metadata. If sign-in still fails, the app will show a short message; ensure Pages is set to GitHub Actions and the workflow has run once.
 
 ## Local development
 

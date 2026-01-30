@@ -1,19 +1,15 @@
 #!/usr/bin/env node
 /**
- * Generate oauth/client-metadata.json with your GitHub Pages base URL.
- * Run before pushing so Bluesky can verify your app when users sign in.
- *
- *   GITHUB_PAGES_BASE=https://yourusername.github.io/skytry node scripts/generate-oauth-metadata.js
- *
- * Or: node scripts/generate-oauth-metadata.js https://yourusername.github.io/skytry
+ * Generate oauth/client-metadata.json with the app's base URL.
+ * Used by the GitHub Actions workflow (which sets GITHUB_PAGES_BASE from the repo).
+ * For local or custom deploy: set env GITHUB_PAGES_BASE to your site URL, or pass it as the first argument.
  */
 const fs = require('fs');
 const path = require('path');
 
 const base = process.env.GITHUB_PAGES_BASE || process.argv[2];
 if (!base || !base.startsWith('https://')) {
-  console.error('Usage: GITHUB_PAGES_BASE=https://yourusername.github.io/skytry node scripts/generate-oauth-metadata.js');
-  console.error('   Or: node scripts/generate-oauth-metadata.js https://yourusername.github.io/skytry');
+  console.error('Set GITHUB_PAGES_BASE to your site base URL (e.g. https://owner.github.io/repo) or pass it as the first argument.');
   process.exit(1);
 }
 
@@ -33,4 +29,4 @@ const metadata = {
 
 const outPath = path.join(__dirname, '..', 'oauth', 'client-metadata.json');
 fs.writeFileSync(outPath, JSON.stringify(metadata, null, 2) + '\n', 'utf8');
-console.log('Wrote', outPath, 'with base', normalizedBase);
+console.log('Wrote', outPath);

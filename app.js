@@ -555,9 +555,7 @@ async function init() {
         const text = await res.text();
         if (text.includes('YOUR_GITHUB_PAGES_BASE')) {
           showLoginError(
-            'Sign-in won’t work until Bluesky can load your app’s metadata. Run: GITHUB_PAGES_BASE=' +
-              getAppBase() +
-              ' node scripts/generate-oauth-metadata.js  then push the updated oauth/client-metadata.json. See README.'
+            'Sign-in requires deploying with this repo’s GitHub Actions workflow so Bluesky can load your app metadata. In repo Settings → Pages, set Source to "GitHub Actions". See README.'
           );
         }
       }
