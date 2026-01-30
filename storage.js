@@ -320,56 +320,55 @@ class WikiStorage {
         const privateJwk = await this._exportKeyJwk(keypair.privateKey);
         const publicJwk = await this._exportKeyJwk(keypair.publicKey);
 
-        const scopePreferred = 'atproto repo:site.standard.document repo:com.atproto.repo.record';
-        const scopeFallback = 'atproto transition:generic';
+        const scopeMinimal = 'atproto transition:generic';
+        const scopeWithRepo = 'atproto repo:site.standard.document repo:com.atproto.repo.record';
         const privateKey = await this._importPrivateKeyJwk(privateJwk);
 
         const doParRequest = async (body, nonce) => {
-            const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
-            if (nonce) {
-                const dpopProof = await this._buildDpopProof('POST', parEndpoint, nonce, privateKey, publicJwk);
-                headers['DPoP'] = dpopProof;
-            } else {
-                const dpopProof = await this._buildDpopProof('POST', parEndpoint, undefined, privateKey, publicJwk);
-                headers['DPoP'] = dpopProof;
-            }
-            return fetch(parEndpoint, { method: 'POST', headers, body });
+            const dpopProof = await this._buildDpopProof('POST', parEndpoint, nonce || undefined, privateKey, publicJwk);
+            return fetch(parEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'DPoP': dpopProof
+                },
+                body
+            });
         };
 
-        let parBody = new URLSearchParams({
+        const buildParBody = (scope) => new URLSearchParams({
             response_type: 'code',
             code_challenge_method: 'S256',
-            scope: scopePreferred,
+            scope,
             client_id: clientId,
             redirect_uri: redirectUri,
             code_challenge: codeChallenge,
             state,
             login_hint: handle
         });
+
+        const parseParError = async (res) => {
+            const text = await res.text();
+            try {
+                const j = JSON.parse(text);
+                return j.error_description || j.error || text.slice(0, 200);
+            } catch (_) {
+                return (text || `HTTP ${res.status}`).slice(0, 200);
+            }
+        };
+
+        let parBody = buildParBody(scopeMinimal);
         let parRes = await doParRequest(parBody.toString(), undefined);
         let dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce');
-        if (parRes.status === 401) {
-            const errBody = await parRes.json().catch(() => ({}));
-            if (errBody.error === 'use_dpop_nonce') dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce');
-            if (dpopNonce) {
-                parRes = await doParRequest(parBody.toString(), dpopNonce);
-                dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce') || dpopNonce;
-            }
+        if (parRes.status === 401 && dpopNonce) {
+            parRes = await doParRequest(parBody.toString(), dpopNonce);
+            dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce') || dpopNonce;
         }
         if (!parRes.ok) {
-            const err = await parRes.json().catch(() => ({}));
-            const errMsg = (err.error_description || err.error || '').toLowerCase();
-            if ((err.error === 'invalid_scope' || errMsg.includes('scope')) && scopePreferred.includes('repo:')) {
-                parBody = new URLSearchParams({
-                    response_type: 'code',
-                    code_challenge_method: 'S256',
-                    scope: scopeFallback,
-                    client_id: clientId,
-                    redirect_uri: redirectUri,
-                    code_challenge: codeChallenge,
-                    state,
-                    login_hint: handle
-                });
+            const errMsg = await parseParError(parRes);
+            const errLower = errMsg.toLowerCase();
+            if ((errLower.includes('scope') || errLower.includes('invalid')) && !parRes.ok) {
+                parBody = buildParBody(scopeWithRepo);
                 parRes = await doParRequest(parBody.toString(), dpopNonce || undefined);
                 if (parRes.status === 401 && parRes.headers.get('dpop-nonce')) {
                     dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce');
@@ -377,8 +376,8 @@ class WikiStorage {
                 }
             }
             if (!parRes.ok) {
-                const err2 = await parRes.json().catch(() => ({}));
-                throw new Error(err2.error_description || err2.error || 'PAR failed');
+                const err2 = await parseParError(parRes);
+                throw new Error(err2 || `PAR failed (${parRes.status})`);
             }
         }
         const parData = await parRes.json();
