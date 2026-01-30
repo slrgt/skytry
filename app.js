@@ -4,6 +4,13 @@
   const PLC_DIRECTORY = 'https://plc.directory';
   const STORAGE_KEYS = { saved: 'skytry_saved', blogs: 'skytry_blogs' };
   const PDS = 'https://bsky.social';
+  // Known bsky.social OAuth metadata (avoids CORS/404 on .well-known from browser)
+  const BSKY_AUTH_METADATA = {
+    issuer: 'https://bsky.social',
+    authorization_endpoint: 'https://bsky.social/oauth/authorize',
+    token_endpoint: 'https://bsky.social/oauth/token',
+    pushed_authorization_request_endpoint: 'https://bsky.social/oauth/par',
+  };
 
   let blueskyClient = null;
   let feedCursor = null;
@@ -94,17 +101,25 @@
     const clientId = _oauthClientId();
     const redirectUri = _oauthRedirectUri();
     const pdsUrl = PDS;
-    const resResource = await fetch(pdsUrl.replace(/\/$/, '') + '/.well-known/oauth-protected-resource');
-    if (!resResource.ok) throw new Error('Could not get PDS metadata');
-    const resourceMeta = await resResource.json();
-    const authServerUrl = resourceMeta.authorization_servers?.[0] || pdsUrl;
-    const resAuth = await fetch(authServerUrl.replace(/\/$/, '') + '/.well-known/oauth-authorization-server');
-    if (!resAuth.ok) throw new Error('Could not get OAuth server metadata');
-    const authMeta = await resAuth.json();
-    const parEndpoint = authMeta.pushed_authorization_request_endpoint;
-    const authEndpoint = authMeta.authorization_endpoint;
-    const tokenEndpoint = authMeta.token_endpoint;
-    const issuer = authMeta.issuer;
+    let parEndpoint, authEndpoint, tokenEndpoint, issuer;
+    if (pdsUrl === 'https://bsky.social' || pdsUrl.replace(/\/$/, '') === 'https://bsky.social') {
+      parEndpoint = BSKY_AUTH_METADATA.pushed_authorization_request_endpoint;
+      authEndpoint = BSKY_AUTH_METADATA.authorization_endpoint;
+      tokenEndpoint = BSKY_AUTH_METADATA.token_endpoint;
+      issuer = BSKY_AUTH_METADATA.issuer;
+    } else {
+      const resResource = await fetch(pdsUrl.replace(/\/$/, '') + '/.well-known/oauth-protected-resource');
+      if (!resResource.ok) throw new Error('Could not get PDS metadata');
+      const resourceMeta = await resResource.json();
+      const authServerUrl = resourceMeta.authorization_servers?.[0] || pdsUrl;
+      const resAuth = await fetch(authServerUrl.replace(/\/$/, '') + '/.well-known/oauth-authorization-server');
+      if (!resAuth.ok) throw new Error('Could not get OAuth server metadata');
+      const authMeta = await resAuth.json();
+      parEndpoint = authMeta.pushed_authorization_request_endpoint;
+      authEndpoint = authMeta.authorization_endpoint;
+      tokenEndpoint = authMeta.token_endpoint;
+      issuer = authMeta.issuer;
+    }
 
     const stateArr = new Uint8Array(28);
     crypto.getRandomValues(stateArr);
