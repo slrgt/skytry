@@ -838,7 +838,7 @@ async function init() {
         const text = await res.text();
         if (text.includes('YOUR_GITHUB_PAGES_BASE')) {
           showLoginError(
-            'Sign-in requires deploying with this repo\'s GitHub Actions workflow so Bluesky can load your app metadata. In repo Settings -> Pages, set Source to "GitHub Actions". See README.'
+            'OAuth metadata still has a placeholder URL. Fix: Repo → Settings → Pages → set Source to "GitHub Actions", then push to main or run the workflow. The workflow writes the real URL into oauth/client-metadata.json before deploy. See README.'
           );
         }
       }
