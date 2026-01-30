@@ -3082,20 +3082,20 @@ class WikiApp {
             const appBaseUrl = this.storage._oauthBaseUrl();
             const appUrlWithSlash = appBaseUrl.endsWith('/') ? appBaseUrl : appBaseUrl + '/';
             const isLocalOrFile = !window.location.origin || window.location.origin === 'null' || window.location.origin === 'file:';
-            if (!isLocalOrFile && (window.location.origin + (window.location.pathname || '')) !== appUrlWithSlash && (window.location.origin + (window.location.pathname || '').replace(/\/?$/, '/')) !== appUrlWithSlash) {
-                const proceed = confirm('Bluesky login will redirect you to sign in, then back here. Continue?');
+            if (!isLocalOrFile) {
+                const proceed = confirm('You\'ll be redirected to Bluesky to sign in, then back to this page. Continue?');
                 if (!proceed) {
                     if (btn) { btn.disabled = false; btn.textContent = 'Continue to Bluesky Login'; }
                     return;
                 }
             }
             await this.storage.startBlueskyOAuth(handle);
-            alert('Redirect was blocked. Please allow popups/redirects, or open the app from: ' + appUrlWithSlash);
+            alert('Redirect was blocked. Open the app from: ' + appUrlWithSlash);
         } catch (error) {
-            const msg = error.message || 'Unknown error';
+            const msg = (error && error.message) ? error.message : 'Unknown error';
             const appUrlWithSlash = (this.storage._oauthBaseUrl() + '/').replace(/\/\/$/, '/');
             if (/redirect_uri|PAR|invalid/i.test(msg)) {
-                alert('Bluesky login failed: open the app from its deployed URL to sign in: ' + appUrlWithSlash);
+                alert('Bluesky login failed. Use this app from its actual URL to sign in: ' + appUrlWithSlash);
             } else {
                 alert('Failed to start Bluesky login: ' + msg);
             }

@@ -1,5 +1,5 @@
 // SkyTry Service Worker - PWA Offline Support
-const CACHE_NAME = 'skytry-v1';
+const CACHE_NAME = 'skytry-v2';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',

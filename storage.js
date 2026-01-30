@@ -201,7 +201,7 @@ class WikiStorage {
 
     // --- AT Protocol OAuth (PAR + PKCE + DPoP) ---
     // Published app URL for OAuth (must match redirect_uris in oauth-client-metadata.json).
-    // When not on this origin (e.g. file:// or localhost), we still use it so login redirects to the published app.
+    // When not on HTTPS (e.g. file:// or localhost), we use a fallback base URL.
     _oauthBaseUrl() {
         const origin = window.location.origin;
         const pathname = (window.location.pathname || '/').replace(/\/$/, '') || '/';
