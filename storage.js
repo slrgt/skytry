@@ -36,11 +36,17 @@ class WikiStorage {
         }
     }
 
+    _pdsBaseUrl() {
+        const url = this.blueskyClient?.pdsUrl || 'https://bsky.social';
+        return url.replace(/\/$/, '');
+    }
+
     async loadArchiveFromBluesky() {
         if (!this.blueskyClient?.accessJwt) return;
         try {
             await this.ensureValidToken();
-            const res = await this._pdsFetch(`https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${this.blueskyClient.did}&collection=com.atproto.repo.record&rkey=xoxowiki-archive`);
+            const base = this._pdsBaseUrl();
+            const res = await this._pdsFetch(`${base}/xrpc/com.atproto.repo.getRecord?repo=${this.blueskyClient.did}&collection=com.atproto.repo.record&rkey=xoxowiki-archive`);
             if (!res.ok) return;
             const data = await res.json();
             const content = data.value?.content;
@@ -105,7 +111,8 @@ class WikiStorage {
                         if (session.oauth && localStorage.getItem('bluesky-oauth-dpop-private-jwk')) {
                             await this._oauthRefresh();
                         } else {
-                            const response = await fetch('https://bsky.social/xrpc/com.atproto.server.refreshSession', {
+                            const refreshBase = session.pdsUrl ? session.pdsUrl.replace(/\/$/, '') : 'https://bsky.social';
+                            const response = await fetch(`${refreshBase}/xrpc/com.atproto.server.refreshSession`, {
                                 method: 'POST',
                                 headers: { 'Authorization': `Bearer ${session.refreshJwt}` }
                             });
@@ -116,7 +123,8 @@ class WikiStorage {
                                     handle: session.handle,
                                     accessJwt: data.accessJwt,
                                     refreshJwt: data.refreshJwt,
-                                    tokenTimestamp: Date.now()
+                                    tokenTimestamp: Date.now(),
+                                    pdsUrl: session.pdsUrl || undefined
                                 };
                                 this.storageMode = 'bluesky';
                                 session.refreshJwt = data.refreshJwt;
@@ -144,7 +152,7 @@ class WikiStorage {
 
     async _oauthRefresh() {
         const session = JSON.parse(localStorage.getItem('bluesky-session') || '{}');
-        const tokenEndpoint = 'https://bsky.social/oauth/token';
+        const tokenEndpoint = (session.pdsUrl ? session.pdsUrl.replace(/\/$/, '') : 'https://bsky.social') + '/oauth/token';
         const clientId = this._oauthClientId();
         const privateJwk = localStorage.getItem('bluesky-oauth-dpop-private-jwk');
         const publicJwk = localStorage.getItem('bluesky-oauth-dpop-public-jwk');
@@ -192,7 +200,8 @@ class WikiStorage {
             handle: session.handle,
             accessJwt: data.access_token,
             refreshJwt: data.refresh_token,
-            tokenTimestamp: Date.now()
+            tokenTimestamp: Date.now(),
+            pdsUrl: session.pdsUrl || undefined
         };
         session.refreshJwt = data.refresh_token;
         localStorage.setItem('bluesky-session', JSON.stringify(session));
@@ -287,9 +296,10 @@ class WikiStorage {
     }
 
     async startBlueskyOAuth(handle) {
+        const normalizedHandle = this._normalizeHandle(handle);
         const clientId = this._oauthClientId();
         const redirectUri = this._oauthRedirectUri();
-        const resHandle = await fetch(`https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(handle)}`);
+        const resHandle = await fetch(`https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(normalizedHandle)}`);
         if (!resHandle.ok) throw new Error('Could not resolve handle');
         const { did } = await resHandle.json();
         const resPlc = await fetch(`https://plc.directory/${encodeURIComponent(did)}`);
@@ -344,7 +354,7 @@ class WikiStorage {
             redirect_uri: redirectUri,
             code_challenge: codeChallenge,
             state,
-            login_hint: handle
+            login_hint: normalizedHandle
         });
 
         const parseParError = async (res) => {
@@ -387,9 +397,10 @@ class WikiStorage {
 
         sessionStorage.setItem('bluesky-oauth-state', state);
         sessionStorage.setItem('bluesky-oauth-code-verifier', codeVerifier);
-        sessionStorage.setItem('bluesky-oauth-handle', handle);
+        sessionStorage.setItem('bluesky-oauth-handle', normalizedHandle);
         sessionStorage.setItem('bluesky-oauth-token-endpoint', tokenEndpoint);
         sessionStorage.setItem('bluesky-oauth-issuer', issuer);
+        sessionStorage.setItem('bluesky-oauth-pds-url', pdsUrl);
         sessionStorage.setItem('bluesky-oauth-dpop-nonce', dpopNonce || '');
         sessionStorage.setItem('bluesky-oauth-dpop-private-jwk', JSON.stringify(privateJwk));
         sessionStorage.setItem('bluesky-oauth-dpop-public-jwk', JSON.stringify(publicJwk));
@@ -408,6 +419,7 @@ class WikiStorage {
         const handle = sessionStorage.getItem('bluesky-oauth-handle');
         const tokenEndpoint = sessionStorage.getItem('bluesky-oauth-token-endpoint');
         const issuer = sessionStorage.getItem('bluesky-oauth-issuer');
+        const pdsUrlStored = sessionStorage.getItem('bluesky-oauth-pds-url');
         const dpopNonce = sessionStorage.getItem('bluesky-oauth-dpop-nonce');
         const privateJwk = sessionStorage.getItem('bluesky-oauth-dpop-private-jwk');
 
@@ -458,24 +470,28 @@ class WikiStorage {
             if (!accessToken || !refreshToken || !sub) throw new Error('Invalid token response');
 
             localStorage.setItem('bluesky-oauth-dpop-private-jwk', privateJwk);
+            const pdsUrl = (pdsUrlStored || 'https://bsky.social').replace(/\/$/, '');
             this.blueskyClient = {
                 did: sub,
                 handle: handle || sub,
                 accessJwt: accessToken,
                 refreshJwt: refreshToken,
-                tokenTimestamp: Date.now()
+                tokenTimestamp: Date.now(),
+                pdsUrl
             };
             localStorage.setItem('bluesky-session', JSON.stringify({
                 handle: this.blueskyClient.handle,
                 did: this.blueskyClient.did,
                 refreshJwt: this.blueskyClient.refreshJwt,
-                oauth: true
+                oauth: true,
+                pdsUrl
             }));
             sessionStorage.removeItem('bluesky-oauth-state');
             sessionStorage.removeItem('bluesky-oauth-code-verifier');
             sessionStorage.removeItem('bluesky-oauth-handle');
             sessionStorage.removeItem('bluesky-oauth-token-endpoint');
             sessionStorage.removeItem('bluesky-oauth-issuer');
+            sessionStorage.removeItem('bluesky-oauth-pds-url');
             sessionStorage.removeItem('bluesky-oauth-dpop-nonce');
             sessionStorage.removeItem('bluesky-oauth-dpop-private-jwk');
             sessionStorage.removeItem('bluesky-oauth-dpop-public-jwk');
@@ -492,22 +508,41 @@ class WikiStorage {
             sessionStorage.removeItem('bluesky-oauth-dpop-nonce');
             sessionStorage.removeItem('bluesky-oauth-dpop-private-jwk');
             sessionStorage.removeItem('bluesky-oauth-dpop-public-jwk');
+            sessionStorage.removeItem('bluesky-oauth-pds-url');
             return false;
         }
     }
 
-    // Legacy method for app password (kept for fallback)
+    _normalizeHandle(handle) {
+        const trimmed = (handle || '').trim().toLowerCase();
+        if (!trimmed) return trimmed;
+        if (!trimmed.includes('.')) return trimmed + '.bsky.social';
+        return trimmed;
+    }
+
+    // Legacy method for app password (kept for fallback). Resolves user's PDS for compatibility.
     async connectBluesky(handle, password, saveCredentials = true) {
         try {
-            // Use AT Protocol's createSession endpoint (same as pckt.blog)
-            const response = await fetch('https://bsky.social/xrpc/com.atproto.server.createSession', {
+            const normalizedHandle = this._normalizeHandle(handle);
+            const resHandle = await fetch(`https://bsky.social/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(normalizedHandle)}`);
+            if (!resHandle.ok) throw new Error('Could not resolve handle. Check your Bluesky handle.');
+            const { did } = await resHandle.json();
+            let pdsUrl = 'https://bsky.social';
+            try {
+                const resPlc = await fetch(`https://plc.directory/${encodeURIComponent(did)}`);
+                if (resPlc.ok) {
+                    const didDoc = await resPlc.json();
+                    const ep = didDoc.service?.[0]?.serviceEndpoint;
+                    if (ep) pdsUrl = typeof ep === 'string' ? ep : (ep.url || pdsUrl);
+                }
+            } catch (_) { /* keep default */ }
+            const base = pdsUrl.replace(/\/$/, '');
+            const response = await fetch(`${base}/xrpc/com.atproto.server.createSession`, {
                 method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    identifier: handle,
-                    password: password // App password recommended
+                    identifier: normalizedHandle,
+                    password: password
                 })
             });
 
@@ -525,15 +560,17 @@ class WikiStorage {
                 handle: data.handle,
                 accessJwt: data.accessJwt,
                 refreshJwt: data.refreshJwt,
-                email: data.email || null
+                email: data.email || null,
+                tokenTimestamp: Date.now(),
+                pdsUrl: base
             };
 
             if (saveCredentials) {
-                // Store only handle, not password (for security)
                 localStorage.setItem('bluesky-session', JSON.stringify({
-                    handle: handle,
+                    handle: data.handle,
                     did: data.did,
-                    refreshJwt: data.refreshJwt
+                    refreshJwt: data.refreshJwt,
+                    pdsUrl: base
                 }));
             }
 
@@ -553,7 +590,8 @@ class WikiStorage {
             if (session.oauth && localStorage.getItem('bluesky-oauth-dpop-private-jwk')) {
                 await this._oauthRefresh();
             } else {
-                const response = await fetch('https://bsky.social/xrpc/com.atproto.server.refreshSession', {
+                const refreshBase = session.pdsUrl ? session.pdsUrl.replace(/\/$/, '') : 'https://bsky.social';
+                const response = await fetch(`${refreshBase}/xrpc/com.atproto.server.refreshSession`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${session.refreshJwt}` }
                 });
@@ -561,6 +599,7 @@ class WikiStorage {
                 const data = await response.json();
                 this.blueskyClient.accessJwt = data.accessJwt;
                 this.blueskyClient.refreshJwt = data.refreshJwt;
+                this.blueskyClient.tokenTimestamp = Date.now();
                 session.refreshJwt = data.refreshJwt;
                 localStorage.setItem('bluesky-session', JSON.stringify(session));
             }
@@ -637,6 +676,16 @@ class WikiStorage {
                 res = await fetch(url, { ...options, headers });
             }
         }
+        if (res.status === 429) {
+            const e = new Error('Rate limited by Bluesky. Please try again in a few minutes.');
+            e.status = 429;
+            throw e;
+        }
+        if (res.status === 503) {
+            const e = new Error('Bluesky is temporarily unavailable. Please try again later.');
+            e.status = 503;
+            throw e;
+        }
         return res;
     }
 
@@ -657,7 +706,8 @@ class WikiStorage {
     // Get articles from Bluesky PDS (site.standard.document lexicon, same as standard.site / pckt.blog)
     async getAllArticlesFromBluesky() {
         try {
-            const response = await this._pdsFetch(`https://bsky.social/xrpc/com.atproto.repo.listRecords?repo=${this.blueskyClient.did}&collection=site.standard.document`);
+            const base = this._pdsBaseUrl();
+            const response = await this._pdsFetch(`${base}/xrpc/com.atproto.repo.listRecords?repo=${this.blueskyClient.did}&collection=site.standard.document`);
 
             if (!response.ok) {
                 return {};
@@ -706,7 +756,8 @@ class WikiStorage {
 
     async getArticleFromBluesky(key) {
         try {
-            const response = await this._pdsFetch(`https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${this.blueskyClient.did}&collection=site.standard.document&rkey=${encodeURIComponent(key)}`);
+            const base = this._pdsBaseUrl();
+            const response = await this._pdsFetch(`${base}/xrpc/com.atproto.repo.getRecord?repo=${this.blueskyClient.did}&collection=site.standard.document&rkey=${encodeURIComponent(key)}`);
 
             if (!response.ok) {
                 return null;
@@ -772,7 +823,8 @@ class WikiStorage {
         const existing = await this.getArticleFromBluesky(key);
 
         if (existing) {
-            const putRes = await this._pdsFetch(`https://bsky.social/xrpc/com.atproto.repo.putRecord`, {
+            const base = this._pdsBaseUrl();
+            const putRes = await this._pdsFetch(`${base}/xrpc/com.atproto.repo.putRecord`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -787,7 +839,8 @@ class WikiStorage {
                 throw new Error(err.message || err.error || 'Failed to save to Bluesky');
             }
         } else {
-            const createRes = await this._pdsFetch(`https://bsky.social/xrpc/com.atproto.repo.createRecord`, {
+            const base = this._pdsBaseUrl();
+            const createRes = await this._pdsFetch(`${base}/xrpc/com.atproto.repo.createRecord`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -821,7 +874,8 @@ class WikiStorage {
 
     async deleteArticleFromBluesky(key) {
         try {
-            await this._pdsFetch(`https://bsky.social/xrpc/com.atproto.repo.deleteRecord`, {
+            const base = this._pdsBaseUrl();
+            await this._pdsFetch(`${base}/xrpc/com.atproto.repo.deleteRecord`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1094,12 +1148,13 @@ class WikiStorage {
                 updatedAt: new Date().toISOString()
             };
 
+            const base = this._pdsBaseUrl();
             // Check if record exists
             try {
-                await this._pdsFetch(`https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${this.blueskyClient.did}&collection=com.atproto.repo.record&rkey=webcomic-pages`);
+                await this._pdsFetch(`${base}/xrpc/com.atproto.repo.getRecord?repo=${this.blueskyClient.did}&collection=com.atproto.repo.record&rkey=webcomic-pages`);
 
                 // Update existing
-                await this._pdsFetch(`https://bsky.social/xrpc/com.atproto.repo.putRecord`, {
+                await this._pdsFetch(`${base}/xrpc/com.atproto.repo.putRecord`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1111,7 +1166,7 @@ class WikiStorage {
                 });
             } catch (e) {
                 // Create new
-                await this._pdsFetch(`https://bsky.social/xrpc/com.atproto.repo.createRecord`, {
+                await this._pdsFetch(`${base}/xrpc/com.atproto.repo.createRecord`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1129,7 +1184,8 @@ class WikiStorage {
     async loadWebcomicPagesFromBluesky() {
         try {
             await this.ensureValidToken();
-            const response = await this._pdsFetch(`https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${this.blueskyClient.did}&collection=com.atproto.repo.record&rkey=webcomic-pages`);
+            const base = this._pdsBaseUrl();
+            const response = await this._pdsFetch(`${base}/xrpc/com.atproto.repo.getRecord?repo=${this.blueskyClient.did}&collection=com.atproto.repo.record&rkey=webcomic-pages`);
 
             if (response.ok) {
                 const data = await response.json();
@@ -1205,11 +1261,12 @@ class WikiStorage {
 
             const rkey = `webcomic-progress-${userId}`;
             
+            const base = this._pdsBaseUrl();
             try {
-                await this._pdsFetch(`https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${this.blueskyClient.did}&collection=com.atproto.repo.record&rkey=${rkey}`);
+                await this._pdsFetch(`${base}/xrpc/com.atproto.repo.getRecord?repo=${this.blueskyClient.did}&collection=com.atproto.repo.record&rkey=${rkey}`);
 
                 // Update existing
-                await this._pdsFetch(`https://bsky.social/xrpc/com.atproto.repo.putRecord`, {
+                await this._pdsFetch(`${base}/xrpc/com.atproto.repo.putRecord`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1221,7 +1278,7 @@ class WikiStorage {
                 });
             } catch (e) {
                 // Create new
-                await this._pdsFetch(`https://bsky.social/xrpc/com.atproto.repo.createRecord`, {
+                await this._pdsFetch(`${base}/xrpc/com.atproto.repo.createRecord`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1241,7 +1298,8 @@ class WikiStorage {
             await this.ensureValidToken();
             const userId = this.blueskyClient.did;
             const rkey = `webcomic-progress-${userId}`;
-            const response = await this._pdsFetch(`https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${this.blueskyClient.did}&collection=com.atproto.repo.record&rkey=${rkey}`);
+            const base = this._pdsBaseUrl();
+            const response = await this._pdsFetch(`${base}/xrpc/com.atproto.repo.getRecord?repo=${this.blueskyClient.did}&collection=com.atproto.repo.record&rkey=${rkey}`);
 
             if (response.ok) {
                 const data = await response.json();
@@ -1744,7 +1802,8 @@ class WikiStorage {
         await this.ensureValidToken();
         const formData = new FormData();
         formData.append('file', blob, `image.${mimeType.split('/')[1] || 'jpg'}`);
-        const response = await this._pdsFetch('https://bsky.social/xrpc/com.atproto.repo.uploadBlob', {
+        const base = this._pdsBaseUrl();
+        const response = await this._pdsFetch(`${base}/xrpc/com.atproto.repo.uploadBlob`, {
             method: 'POST',
             body: formData
         });
@@ -1763,7 +1822,8 @@ class WikiStorage {
         const repoDid = did || this.blueskyClient?.did;
         if (!cid || !repoDid) return null;
         const cidOnly = String(cid).replace(/^cid:/, '');
-        return `https://bsky.social/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(repoDid)}&cid=${encodeURIComponent(cidOnly)}`;
+        const base = this.blueskyClient ? this._pdsBaseUrl() : 'https://bsky.social';
+        return `${base}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(repoDid)}&cid=${encodeURIComponent(cidOnly)}`;
     }
 
     // Parse feed array (getFeed or getTimeline response) into browse items with images/videos
@@ -1826,7 +1886,8 @@ class WikiStorage {
     // Fetch feed from AT Protocol. When logged in, uses your Bluesky timeline; otherwise public "what's hot".
     async fetchBrowseFeed(cursor = null, limit = 30) {
         if (this.blueskyClient?.accessJwt) {
-            let url = `https://bsky.social/xrpc/app.bsky.feed.getTimeline?limit=${limit}`;
+            const base = this._pdsBaseUrl();
+            let url = `${base}/xrpc/app.bsky.feed.getTimeline?limit=${limit}`;
             if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
             const response = await this._pdsFetch(url);
             if (!response.ok) throw new Error('Failed to load your feed');
@@ -1895,7 +1956,8 @@ class WikiStorage {
     async fetchBrowsePosts(cursor = null, limit = 25) {
         let data;
         if (this.blueskyClient?.accessJwt) {
-            let url = `https://bsky.social/xrpc/app.bsky.feed.getTimeline?limit=${limit}`;
+            const base = this._pdsBaseUrl();
+            let url = `${base}/xrpc/app.bsky.feed.getTimeline?limit=${limit}`;
             if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
             const response = await this._pdsFetch(url);
             if (!response.ok) throw new Error('Failed to load your feed');
@@ -1926,7 +1988,8 @@ class WikiStorage {
             const did = item.atBlobRefDid ?? this.blueskyClient?.did;
             if (cid && did) {
                 const cidOnly = typeof cid === 'string' ? cid.replace(/^cid:/, '') : String(cid);
-                return `https://bsky.social/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(cidOnly)}`;
+                const base = this.blueskyClient ? this._pdsBaseUrl() : 'https://bsky.social';
+                return `${base}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(did)}&cid=${encodeURIComponent(cidOnly)}`;
             }
         }
         // 3) Local file (disk or IndexedDB)
@@ -2153,16 +2216,17 @@ class WikiStorage {
                 content: JSON.stringify(payload),
                 createdAt: new Date().toISOString()
             };
-            const getRes = await this._pdsFetch(`https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=${this.blueskyClient.did}&collection=com.atproto.repo.record&rkey=xoxowiki-archive`);
+            const base = this._pdsBaseUrl();
+            const getRes = await this._pdsFetch(`${base}/xrpc/com.atproto.repo.getRecord?repo=${this.blueskyClient.did}&collection=com.atproto.repo.record&rkey=xoxowiki-archive`);
             const body = { repo: this.blueskyClient.did, collection: 'com.atproto.repo.record', rkey: 'xoxowiki-archive', record };
             if (getRes.ok) {
-                await this._pdsFetch('https://bsky.social/xrpc/com.atproto.repo.putRecord', {
+                await this._pdsFetch(`${base}/xrpc/com.atproto.repo.putRecord`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
             } else {
-                await this._pdsFetch('https://bsky.social/xrpc/com.atproto.repo.createRecord', {
+                await this._pdsFetch(`${base}/xrpc/com.atproto.repo.createRecord`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
