@@ -333,8 +333,8 @@ class WikiStorage {
         const privateJwk = await this._exportKeyJwk(keypair.privateKey);
         const publicJwk = await this._exportKeyJwk(keypair.publicKey);
 
-        // Request repo scopes only; omit transition:generic to avoid PAR/DPoP nonce issues (see atproto#3078, user reports).
-        const scopeMinimal = 'atproto repo:site.standard.document repo:com.atproto.repo.record';
+        // Try minimal scope first (like wikisky) so PAR may succeed without nonce; then retry with full scope + nonce if needed.
+        const scopeMinimal = 'atproto';
         const scopeWithRepo = 'atproto repo:site.standard.document repo:com.atproto.repo.record';
         const privateKey = await this._importPrivateKeyJwk(privateJwk);
 
@@ -380,6 +380,7 @@ class WikiStorage {
             firstParBody = await parRes.json().catch(() => ({}));
             dpopNonce = dpopNonce || firstParBody.dpop_nonce || firstParBody.nonce || '';
             if (dpopNonce) {
+                parBody = buildParBody(scopeWithRepo);
                 parRes = await doParRequest(parBody.toString(), dpopNonce);
                 dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce') || dpopNonce;
                 didRetryWithNonce = true;

@@ -64,14 +64,17 @@ Use double square brackets to create links:
 
 ## Connecting to Bluesky PDS
 
-1. Go to **Bluesky Settings** → **App Passwords**
-2. Create a new app password
-3. Click **"Connect Bluesky"** in the sidebar
-4. Enter your Bluesky handle (e.g., `username.bsky.social`)
-5. Enter the app password
-6. Click **"Connect"**
+**OAuth (recommended):** Click **"Login with Bluesky"** in the sidebar, enter your handle, and you’ll be redirected to Bluesky to sign in, then back to the app.
 
-Your articles will now sync to Bluesky PDS and be available across devices!
+**App password (fallback):** Bluesky Settings → App Passwords → create one, then use **Connect Bluesky** and enter handle + app password.
+
+**If you deploy to your own URL (e.g. your GitHub Pages):** Bluesky OAuth requires `client_id` and `redirect_uris` in `oauth-client-metadata.json` to **exactly match** your app URL. Before deploying, run:
+
+```bash
+GITHUB_PAGES_BASE=https://YOUR_USERNAME.github.io/YOUR_REPO node scripts/generate-oauth-metadata.js
+```
+
+Commit the updated `oauth-client-metadata.json` so the file served at `https://YOUR_USERNAME.github.io/YOUR_REPO/oauth-client-metadata.json` contains your URL. Otherwise login will fail (redirect mismatch).
 
 ## File Structure
 
