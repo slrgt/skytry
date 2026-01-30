@@ -185,6 +185,9 @@ class WikiStorage {
                         client_id: clientId
                     }).toString()
                 });
+            } else {
+                const msg = err.error_description || err.error || 'Token refresh failed';
+                throw new Error(msg);
             }
         }
         if (!res.ok) {
@@ -384,10 +387,12 @@ class WikiStorage {
                     dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce');
                     parRes = await doParRequest(parBody.toString(), dpopNonce);
                 }
-            }
-            if (!parRes.ok) {
-                const err2 = await parseParError(parRes);
-                throw new Error(err2 || `PAR failed (${parRes.status})`);
+                if (!parRes.ok) {
+                    const err2 = await parseParError(parRes);
+                    throw new Error(err2 || `PAR failed (${parRes.status})`);
+                }
+            } else {
+                throw new Error(errMsg || `PAR failed (${parRes.status})`);
             }
         }
         const parData = await parRes.json();
