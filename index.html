@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Skytry">
+  <title>Skytry</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☁</text></svg>">
+</head>
+<body>
+  <div id="app">
+    <header class="header">
+      <h1 class="header-title">Skytry</h1>
+      <button type="button" class="icon-btn" id="btn-refresh" aria-label="Refresh" title="Refresh"></button>
+    </header>
+
+    <main class="main" role="main">
+      <!-- Feed tab: Bluesky timeline -->
+      <section id="tab-feed" class="tab-panel active">
+        <div id="feed-login-prompt" class="login-prompt">
+          <p>Sign in with your Bluesky account to see your feed.</p>
+          <button type="button" class="btn primary" id="btn-login">Sign in</button>
+        </div>
+        <div id="feed-list" class="feed-list hidden"></div>
+        <div id="feed-loading" class="loading hidden">Loading…</div>
+        <div id="feed-error" class="error hidden"></div>
+        <button type="button" id="feed-more" class="btn more hidden">Load more</button>
+      </section>
+
+      <!-- Blogs tab: standard.site publications -->
+      <section id="tab-blogs" class="tab-panel">
+        <div class="blogs-toolbar">
+          <input type="url" id="blog-url" class="input" placeholder="Add site (e.g. pckt.blog)" autocomplete="url">
+          <button type="button" class="btn primary" id="btn-add-blog">Add</button>
+        </div>
+        <p class="hint">Try adding <button type="button" class="link-btn" data-add-blog="https://pckt.blog">pckt.blog</button> or any standard.site blog.</p>
+        <div id="blogs-list" class="blogs-list"></div>
+        <div id="blog-docs" class="blog-docs hidden">
+          <button type="button" class="back-link" id="blog-docs-back">← Back to sites</button>
+          <h2 id="blog-docs-title" class="blog-docs-title"></h2>
+          <div id="blog-docs-list" class="feed-list"></div>
+        </div>
+      </section>
+
+      <!-- Saved tab: collected posts -->
+      <section id="tab-saved" class="tab-panel">
+        <div id="saved-list" class="feed-list"></div>
+        <div id="saved-empty" class="empty-state">No saved posts yet. Save from Feed or Blogs.</div>
+      </section>
+
+      <!-- Settings tab -->
+      <section id="tab-settings" class="tab-panel">
+        <div id="settings-logged-out" class="settings-block">
+          <p>Sign in to Bluesky to view your feed and sync across devices.</p>
+          <button type="button" class="btn primary" id="btn-settings-login">Sign in</button>
+        </div>
+        <div id="settings-logged-in" class="settings-block hidden">
+          <p>Logged in as <strong id="settings-handle"></strong></p>
+          <button type="button" class="btn secondary" id="btn-logout">Sign out</button>
+        </div>
+        <div class="settings-block">
+          <label for="pds-url">PDS URL (optional)</label>
+          <input type="url" id="pds-url" class="input" placeholder="https://bsky.social">
+          <p class="hint">Leave blank to use default. Change if you use a different PDS.</p>
+        </div>
+        <p class="about">Skytry — read Bluesky & standard.site blogs. Open source.</p>
+      </section>
+    </main>
+
+    <nav class="tab-bar" role="tablist">
+      <button type="button" class="tab-bar-item active" data-tab="feed" role="tab" aria-selected="true">
+        <span class="tab-icon" aria-hidden="true">◇</span>
+        <span class="tab-label">Feed</span>
+      </button>
+      <button type="button" class="tab-bar-item" data-tab="blogs" role="tab" aria-selected="false">
+        <span class="tab-icon" aria-hidden="true">◆</span>
+        <span class="tab-label">Blogs</span>
+      </button>
+      <button type="button" class="tab-bar-item" data-tab="saved" role="tab" aria-selected="false">
+        <span class="tab-icon" aria-hidden="true">★</span>
+        <span class="tab-label">Saved</span>
+      </button>
+      <button type="button" class="tab-bar-item" data-tab="settings" role="tab" aria-selected="false">
+        <span class="tab-icon" aria-hidden="true">⚙</span>
+        <span class="tab-label">Settings</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Login modal -->
+  <dialog id="login-dialog" class="dialog">
+    <div class="dialog-inner">
+      <h2>Sign in to Bluesky</h2>
+      <p class="hint">Use your handle (e.g. you.bsky.social) and an App Password from Bluesky Settings → App Passwords.</p>
+      <form id="login-form">
+        <label for="login-identifier">Handle or email</label>
+        <input type="text" id="login-identifier" class="input" required autocomplete="username" placeholder="you.bsky.social">
+        <label for="login-password">App password</label>
+        <input type="password" id="login-password" class="input" required autocomplete="current-password" placeholder="xxxx-xxxx-xxxx-xxxx">
+        <div id="login-error" class="error hidden"></div>
+        <div class="dialog-actions">
+          <button type="button" class="btn secondary" id="btn-cancel-login">Cancel</button>
+          <button type="submit" class="btn primary">Sign in</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
