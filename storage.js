@@ -204,10 +204,12 @@ class WikiStorage {
     // When not on this origin (e.g. file:// or localhost), we still use it so login redirects to the published app.
     _oauthBaseUrl() {
         const origin = window.location.origin;
-        const pathname = window.location.pathname || '/';
+        const pathname = (window.location.pathname || '/').replace(/\/$/, '') || '/';
         if (origin && origin.startsWith('https://')) {
-            const pathDir = pathname.replace(/\/$/, '').split('/').slice(0, -1).join('/');
-            return origin + (pathDir ? pathDir : '');
+            const segments = pathname.split('/').filter(Boolean);
+            const last = segments[segments.length - 1];
+            const pathDir = (last && last.includes('.')) ? segments.slice(0, -1).join('/') : segments.join('/');
+            return origin + (pathDir ? '/' + pathDir : '');
         }
         if (!origin || origin === 'null' || origin === 'file:') {
             return 'https://example.github.io/skytry';

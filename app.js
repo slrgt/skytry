@@ -3079,21 +3079,23 @@ class WikiApp {
             btn.textContent = 'Starting…';
         }
         try {
-            const isPublishedOrigin = window.location.origin === 'https://slrgt.github.io' && (window.location.pathname || '').startsWith('/wikisky');
-            if (!isPublishedOrigin && window.location.origin !== 'null' && window.location.origin !== 'file:') {
-                const proceed = confirm('Bluesky login will redirect you to sign in, then back to the published app (https://slrgt.github.io/wikisky/). Use the app from that URL to sync with Bluesky. Continue?');
+            const appBaseUrl = this.storage._oauthBaseUrl();
+            const appUrlWithSlash = appBaseUrl.endsWith('/') ? appBaseUrl : appBaseUrl + '/';
+            const isLocalOrFile = !window.location.origin || window.location.origin === 'null' || window.location.origin === 'file:';
+            if (!isLocalOrFile && (window.location.origin + (window.location.pathname || '')) !== appUrlWithSlash && (window.location.origin + (window.location.pathname || '').replace(/\/?$/, '/')) !== appUrlWithSlash) {
+                const proceed = confirm('Bluesky login will redirect you to sign in, then back here. Continue?');
                 if (!proceed) {
                     if (btn) { btn.disabled = false; btn.textContent = 'Continue to Bluesky Login'; }
                     return;
                 }
             }
             await this.storage.startBlueskyOAuth(handle);
-            // User will be redirected to Bluesky; if we get here, redirect was blocked
-            alert('Redirect was blocked. Please allow popups/redirects, or open the app from its published URL: https://slrgt.github.io/wikisky/');
+            alert('Redirect was blocked. Please allow popups/redirects, or open the app from: ' + appUrlWithSlash);
         } catch (error) {
             const msg = error.message || 'Unknown error';
+            const appUrlWithSlash = (this.storage._oauthBaseUrl() + '/').replace(/\/\/$/, '/');
             if (/redirect_uri|PAR|invalid/i.test(msg)) {
-                alert('Bluesky login failed: use the app from its published URL (https://slrgt.github.io/wikisky/) to sign in.');
+                alert('Bluesky login failed: open the app from its deployed URL to sign in: ' + appUrlWithSlash);
             } else {
                 alert('Failed to start Bluesky login: ' + msg);
             }
