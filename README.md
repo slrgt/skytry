@@ -1,44 +1,118 @@
-# Skytry
+# SkyTry
 
-A minimalist PWA for reading and collecting posts on the [AT Protocol](https://atproto.com): Bluesky feeds and [standard.site](https://standard.site)–style long-form blogs (e.g. [pckt.blog](https://pckt.blog)).
+A PWA to **browse the AT Protocol** (Bluesky) and turn posts into **wiki articles**. Works offline with optional Bluesky sync.
 
-- **Feed** — Sign in with Bluesky (OAuth, no app passwords) and browse your timeline.
-- **Blogs** — Add standard.site publications by URL (e.g. `pckt.blog`), then open and read their document list.
-- **Saved** — Save posts from Feed to revisit later (stored locally).
-- **Settings** — Sign in/out.
+## Features
 
-Designed to look like a simple iOS app: dark theme, safe areas, bottom tab bar, standalone PWA.
+- **Browse AT Protocol** - View posts from the Bluesky feed (your timeline when logged in, or “What’s Hot” when not)
+- **Make wiki article** - One click to create a wiki article from any post (title + content + source link)
+- **100% Local First** - Works offline; articles and collections stored locally
+- **Optional Bluesky Sync** - Sync your wiki across devices via Bluesky PDS
+- **Add to collection** - Save images from posts into your collections
+- **Wikipedia-like editing** - Create and edit articles with rich formatting
 
-## Host on GitHub Pages
+## How It Works
 
-Anyone can fork or clone this repo and deploy without putting usernames or URLs in the code. The GitHub Actions workflow generates OAuth client metadata from the repo URL automatically.
+### Local Mode (Default)
 
-1. Push this repo to GitHub (or fork it).
+By default, SkyTry stores all articles in your browser's local storage. This means:
+- ✅ Works completely offline
+- ✅ No internet connection needed
+- ✅ Fast and private
+- ✅ Data stays in your browser
 
-2. **Settings → Pages** → under “Build and deployment”, **Source** → **GitHub Actions**.
+### Bluesky PDS Mode (Optional)
 
-3. Push to `main` (or run the workflow from the Actions tab). The workflow builds the site and generates `oauth/client-metadata.json` from your repo’s URL (`https://<owner>.github.io/<repo>/`), then deploys. No manual config.
+You can optionally connect to Bluesky PDS to sync your wiki:
+- ✅ Sync across devices
+- ✅ Backup in the cloud
+- ✅ Still works offline (syncs when online)
+- ✅ Uses Bluesky's decentralized infrastructure
 
-4. Open your Pages URL and use **Sign in with Bluesky**. You’ll be sent to Bluesky’s OAuth page to authorize; no app password needed.
+## Getting Started
 
-If you previously used “Deploy from a branch”, switch to **GitHub Actions** so the workflow can generate the metadata. If sign-in still fails, the app will show a short message; ensure Pages is set to GitHub Actions and the workflow has run once.
+1. **Open `index.html`** in your web browser (or deploy to a static host)
+2. **Go to Browse** to see posts from the AT Protocol
+3. **Click “Make wiki article”** on any post to create an article from it
+4. **Optionally connect Bluesky** in the sidebar for cloud sync
 
-## Local development
+## Creating Articles
 
-On `http://127.0.0.1:<port>` or `http://localhost:<port>`, the app uses the OAuth “loopback” client (no client-metadata file). Refresh tokens are short-lived. For full OAuth behavior, use a tunnel (e.g. ngrok) and set `oauth/client-metadata.json` to that URL.
+1. **Highlight any text** on a page
+2. Click the **"Create Article"** button that appears
+3. Fill in the title and content
+4. Click **"Save Article"**
 
-## Signing in (Bluesky)
+## Editing Articles
 
-Sign-in uses [OAuth for AT Protocol](https://docs.bsky.app/blog/oauth-atproto): you click **Sign in with Bluesky**, get redirected to Bluesky (or your PDS), sign in there, and are sent back to Skytry. No app password or handle/password form in the app.
+- Click the **"Edit"** button next to any article title
+- Or use the **"Edit"** button in the header navigation
 
-**Why wikisky/XoxoWiki can log in and Skytry might not:** Wikisky commits its OAuth metadata file with the real app URL in the repo (e.g. `https://slrgt.github.io/wikisky/oauth-client-metadata.json`), so any deploy serves the correct `client_id` and `redirect_uris` to Bluesky. Skytry keeps a placeholder in the repo and relies on the **GitHub Actions** workflow to overwrite `oauth/client-metadata.json` with your repo URL when it runs—so you must set Pages **Source** to **GitHub Actions** and run the workflow (push to `main` or run it from the Actions tab) at least once. Skytry also uses known bsky.social OAuth endpoints instead of fetching `.well-known` from the browser, which avoids CORS/404 issues on GitHub Pages.
+## Linking Between Articles
 
-## Tech
+Use double square brackets to create links:
+- `[[Article Name]]` - Creates a link to an article
+- `[[Article Name|Display Text]]` - Creates a link with custom display text
 
-- Static PWA: HTML, CSS, vanilla JS (no build step).
-- OAuth: manual PAR + PKCE + DPoP (same flow as wikisky), no SDK; feed via `fetch` to PDS xrpc.
-- standard.site: `/.well-known/site.standard.publication` → AT-URI → DID → PDS (plc.directory) → `com.atproto.repo.listRecords` for documents.
+## Formatting
+
+- **Bold**: `**text**` or `'''text'''`
+- *Italic*: `*text*` or `''text''`
+- `Code`: Use backticks
+- Headers: `# H1`, `## H2`, `### H3`
+- External links: `[Text](https://example.com)`
+
+## Connecting to Bluesky PDS
+
+1. Go to **Bluesky Settings** → **App Passwords**
+2. Create a new app password
+3. Click **"Connect Bluesky"** in the sidebar
+4. Enter your Bluesky handle (e.g., `username.bsky.social`)
+5. Enter the app password
+6. Click **"Connect"**
+
+Your articles will now sync to Bluesky PDS and be available across devices!
+
+## File Structure
+
+```
+skytry/
+├── index.html      # Main HTML file
+├── app.js          # Wiki application logic
+├── storage.js      # Storage abstraction (localStorage + Bluesky PDS)
+├── style.css       # Styling
+└── README.md       # This file
+```
+
+## Technical Details
+
+### Local Storage (IndexedDB)
+
+- Stores articles in browser's IndexedDB
+- No size limits (unlike localStorage)
+- Persists across browser sessions
+- Works completely offline
+
+### Bluesky PDS Integration
+
+- Uses Bluesky's AT Protocol
+- Stores articles as repository records
+- Syncs automatically when online
+- Falls back to local storage if sync fails
+
+## Privacy
+
+- **Local Mode**: All data stays in your browser, never leaves your device
+- **Bluesky Mode**: Data is stored on Bluesky's PDS (your personal data server)
+- No tracking, no analytics, no external services (unless you enable Bluesky sync)
+
+## Browser Support
+
+Works in all modern browsers that support:
+- IndexedDB
+- ES6+ JavaScript
+- Fetch API
 
 ## License
 
-MIT.
+Feel free to use this for your own wiki!
