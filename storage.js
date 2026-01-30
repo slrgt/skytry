@@ -203,13 +203,16 @@ class WikiStorage {
     // Published app URL for OAuth (must match redirect_uris in oauth-client-metadata.json).
     // When not on this origin (e.g. file:// or localhost), we still use it so login redirects to the published app.
     _oauthBaseUrl() {
-        const published = 'https://slrgt.github.io/wikisky';
         const origin = window.location.origin;
-        if (!origin || origin === 'null' || origin === 'file:') return published;
-        if (origin === 'https://slrgt.github.io' && (window.location.pathname || '').startsWith('/wikisky')) {
-            return published;
+        const pathname = window.location.pathname || '/';
+        if (origin && origin.startsWith('https://')) {
+            const pathDir = pathname.replace(/\/$/, '').split('/').slice(0, -1).join('/');
+            return origin + (pathDir ? pathDir : '');
         }
-        return published;
+        if (!origin || origin === 'null' || origin === 'file:') {
+            return 'https://example.github.io/skytry';
+        }
+        return origin;
     }
     _oauthClientId() {
         return this._oauthBaseUrl() + '/oauth-client-metadata.json';

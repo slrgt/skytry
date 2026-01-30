@@ -1,9 +1,9 @@
-# Deploy XoxoWiki to GitHub Pages
+# Deploy SkyTry to GitHub Pages
 
 ## 1. Create a GitHub repository
 
 1. Go to [github.com/new](https://github.com/new).
-2. Set **Repository name** (e.g. `xoxowiki`).
+2. Set **Repository name** (e.g. `skytry`).
 3. Choose **Public**, leave "Add a README" **unchecked**.
 4. Click **Create repository**.
 
@@ -16,17 +16,19 @@ git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
 git push -u origin main
 ```
 
-## 3. Turn on GitHub Pages
+## 3. Turn on GitHub Pages (Actions)
 
 1. In the repo on GitHub, go to **Settings** → **Pages**.
-2. Under **Source**, choose **Deploy from a branch**.
-3. Under **Branch**, select `main` and `/ (root)`.
-4. Click **Save**.
+2. Under **Source**, choose **GitHub Actions** (not "Deploy from a branch").
+3. Save if needed.
 
-After a minute or two, the site will be at:
+The workflow **Deploy to GitHub Pages** (`.github/workflows/deploy-pages.yml`) runs on every push to `main`. It:
+
+- Runs `scripts/generate-oauth-metadata.js` to create `oauth-client-metadata.json` with your repo’s URL (`https://OWNER.github.io/REPO`).
+- Uploads the site as a GitHub Pages artifact and deploys it.
+
+After the workflow finishes, the site is at:
 
 **https://YOUR_USERNAME.github.io/YOUR_REPO/**
 
-You can test the wiki there; data is stored in the browser (IndexedDB / local storage) per device.
-
-**Bluesky OAuth:** Connect to Bluesky uses AT Protocol OAuth (like pckt.blog). The file `oauth-client-metadata.json` has `client_id` and `redirect_uris` set for `https://slrgt.github.io/wikisky/`. If you deploy to a different URL, edit that file so `client_id` and `redirect_uris` match your app URL (the metadata file must be served at the `client_id` URL).
+**Bluesky OAuth:** The build generates `oauth-client-metadata.json` from your repo URL, so `client_id` and `redirect_uris` match your Pages URL. No manual edit needed. The app uses the current origin for OAuth when served over HTTPS.
