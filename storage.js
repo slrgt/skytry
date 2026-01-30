@@ -333,7 +333,8 @@ class WikiStorage {
         const privateJwk = await this._exportKeyJwk(keypair.privateKey);
         const publicJwk = await this._exportKeyJwk(keypair.publicKey);
 
-        const scopeMinimal = 'atproto transition:generic';
+        // Request repo scopes only; omit transition:generic to avoid PAR/DPoP nonce issues (see atproto#3078, user reports).
+        const scopeMinimal = 'atproto repo:site.standard.document repo:com.atproto.repo.record';
         const scopeWithRepo = 'atproto repo:site.standard.document repo:com.atproto.repo.record';
         const privateKey = await this._importPrivateKeyJwk(privateJwk);
 

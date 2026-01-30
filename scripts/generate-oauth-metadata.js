@@ -16,7 +16,7 @@ const metadata = {
   client_uri: base + '/',
   application_type: 'web',
   grant_types: ['authorization_code', 'refresh_token'],
-  scope: 'atproto repo:site.standard.document repo:com.atproto.repo.record transition:generic',
+  scope: 'atproto repo:site.standard.document repo:com.atproto.repo.record',
   response_types: ['code'],
   redirect_uris: [redirectUri],
   token_endpoint_auth_method: 'none',
