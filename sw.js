@@ -4,7 +4,7 @@ self.addEventListener('install', (e) => {
   self.skipWaiting();
   e.waitUntil(
     caches.open(CACHE).then((cache) =>
-      cache.addAll(['./index.html', './styles.css', './app.js', './manifest.json'])
+      cache.addAll(['./index.html', './styles.css', './app.js', './manifest.json', './oauth/client-metadata.json'])
     )
   );
 });

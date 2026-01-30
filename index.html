@@ -11,6 +11,14 @@
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="styles.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☁</text></svg>">
+  <script type="importmap">
+    {
+      "imports": {
+        "@atproto/oauth-client-browser": "https://esm.sh/@atproto/oauth-client-browser@0.3",
+        "@atproto/api": "https://esm.sh/@atproto/api@0.16"
+      }
+    }
+  </script>
 </head>
 <body>
   <div id="app">
@@ -23,8 +31,8 @@
       <!-- Feed tab: Bluesky timeline -->
       <section id="tab-feed" class="tab-panel active">
         <div id="feed-login-prompt" class="login-prompt">
-          <p>Sign in with your Bluesky account to see your feed.</p>
-          <button type="button" class="btn primary" id="btn-login">Sign in</button>
+          <p>Sign in with Bluesky to see your feed.</p>
+          <button type="button" class="btn primary" id="btn-login">Sign in with Bluesky</button>
         </div>
         <div id="feed-list" class="feed-list hidden"></div>
         <div id="feed-loading" class="loading hidden">Loading…</div>
@@ -56,17 +64,12 @@
       <!-- Settings tab -->
       <section id="tab-settings" class="tab-panel">
         <div id="settings-logged-out" class="settings-block">
-          <p>Sign in to Bluesky to view your feed and sync across devices.</p>
-          <button type="button" class="btn primary" id="btn-settings-login">Sign in</button>
+          <p>Sign in with Bluesky (OAuth) to view your feed.</p>
+          <button type="button" class="btn primary" id="btn-settings-login">Sign in with Bluesky</button>
         </div>
         <div id="settings-logged-in" class="settings-block hidden">
           <p>Logged in as <strong id="settings-handle"></strong></p>
           <button type="button" class="btn secondary" id="btn-logout">Sign out</button>
-        </div>
-        <div class="settings-block">
-          <label for="pds-url">PDS URL (optional)</label>
-          <input type="url" id="pds-url" class="input" placeholder="https://bsky.social">
-          <p class="hint">Leave blank to use default. Change if you use a different PDS.</p>
         </div>
         <p class="about">Skytry — read Bluesky & standard.site blogs. Open source.</p>
       </section>
@@ -92,25 +95,6 @@
     </nav>
   </div>
 
-  <!-- Login modal -->
-  <dialog id="login-dialog" class="dialog">
-    <div class="dialog-inner">
-      <h2>Sign in to Bluesky</h2>
-      <p class="hint">Use your handle (e.g. you.bsky.social) and an App Password from Bluesky Settings → App Passwords.</p>
-      <form id="login-form">
-        <label for="login-identifier">Handle or email</label>
-        <input type="text" id="login-identifier" class="input" required autocomplete="username" placeholder="you.bsky.social">
-        <label for="login-password">App password</label>
-        <input type="password" id="login-password" class="input" required autocomplete="current-password" placeholder="xxxx-xxxx-xxxx-xxxx">
-        <div id="login-error" class="error hidden"></div>
-        <div class="dialog-actions">
-          <button type="button" class="btn secondary" id="btn-cancel-login">Cancel</button>
-          <button type="submit" class="btn primary">Sign in</button>
-        </div>
-      </form>
-    </div>
-  </dialog>
-
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
