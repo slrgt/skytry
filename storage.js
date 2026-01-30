@@ -373,19 +373,32 @@ class WikiStorage {
         let parBody = buildParBody(scopeMinimal);
         let parRes = await doParRequest(parBody.toString(), undefined);
         let dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce');
-        if (parRes.status === 401 && dpopNonce) {
-            parRes = await doParRequest(parBody.toString(), dpopNonce);
-            dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce') || dpopNonce;
+        let firstParBody = null;
+        let didRetryWithNonce = false;
+        if (parRes.status === 401 || parRes.status === 400) {
+            firstParBody = await parRes.json().catch(() => ({}));
+            dpopNonce = dpopNonce || firstParBody.dpop_nonce || firstParBody.nonce || '';
+            if (dpopNonce) {
+                parRes = await doParRequest(parBody.toString(), dpopNonce);
+                dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce') || dpopNonce;
+                didRetryWithNonce = true;
+            }
         }
         if (!parRes.ok) {
-            const errMsg = await parseParError(parRes);
+            const errMsg = (firstParBody && !didRetryWithNonce)
+                ? (firstParBody.error_description || firstParBody.error || '')
+                : await parseParError(parRes);
             const errLower = errMsg.toLowerCase();
             if ((errLower.includes('scope') || errLower.includes('invalid')) && !parRes.ok) {
                 parBody = buildParBody(scopeWithRepo);
                 parRes = await doParRequest(parBody.toString(), dpopNonce || undefined);
-                if (parRes.status === 401 && parRes.headers.get('dpop-nonce')) {
-                    dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce');
-                    parRes = await doParRequest(parBody.toString(), dpopNonce);
+                if (parRes.status === 401 || parRes.status === 400) {
+                    const retryBody = await parRes.json().catch(() => ({}));
+                    const retryNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce') || retryBody.dpop_nonce || retryBody.nonce;
+                    if (retryNonce) {
+                        parRes = await doParRequest(parBody.toString(), retryNonce);
+                        dpopNonce = parRes.headers.get('dpop-nonce') || parRes.headers.get('DPoP-Nonce') || retryNonce;
+                    }
                 }
                 if (!parRes.ok) {
                     const err2 = await parseParError(parRes);
