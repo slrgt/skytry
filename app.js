@@ -16,10 +16,20 @@ function getAppBase() {
   return origin + path;
 }
 
-function getClientId() {
-  const isLocal = ['localhost', '127.0.0.1', ''].includes(window.location.hostname);
-  if (isLocal) return undefined;
-  return getAppBase() + '/oauth/client-metadata.json';
+function buildClientMetadata() {
+  const base = getAppBase();
+  return {
+    client_id: base + '/oauth/client-metadata.json',
+    client_name: 'Skytry',
+    client_uri: base + '/',
+    application_type: 'web',
+    redirect_uris: [base + '/'],
+    scope: 'atproto transition:generic',
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'none',
+    dpop_bound_access_tokens: true,
+  };
 }
 
 function getSaved() {
@@ -423,8 +433,20 @@ function switchTab(tabId) {
   if (tabId === 'settings') renderSettings();
 }
 
+function showLoginError(msg) {
+  const el = document.getElementById('login-error');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.classList.toggle('hidden', !msg);
+}
+
 async function doLogin() {
   const btn = document.getElementById('btn-login');
+  showLoginError('');
+  if (!oac) {
+    showLoginError("Sign-in isn’t ready. Refresh the page and try again.");
+    return;
+  }
   if (btn) btn.disabled = true;
   try {
     await oac.signIn('https://bsky.social', {
@@ -433,6 +455,13 @@ async function doLogin() {
     });
   } catch (err) {
     if (btn) btn.disabled = false;
+    const msg = err?.message || String(err);
+    if (msg.includes('abort') || msg.includes('cancel')) return;
+    showLoginError(
+      msg.includes('fetch') || msg.includes('CORS')
+        ? "Network error. If you’re on GitHub Pages, make sure oauth/client-metadata.json uses your real site URL (see README)."
+        : "Sign-in failed: " + (msg || "unknown error")
+    );
   }
 }
 
@@ -488,7 +517,6 @@ if ('serviceWorker' in navigator) {
 }
 
 async function init() {
-  const clientId = getClientId();
   const isLoopback = ['127.0.0.1', 'localhost', ''].includes(window.location.hostname);
 
   try {
@@ -498,9 +526,9 @@ async function init() {
         clientMetadata: undefined,
       });
     } else {
-      oac = await BrowserOAuthClient.load({
-        clientId,
+      oac = new BrowserOAuthClient({
         handleResolver: 'https://bsky.social',
+        clientMetadata: buildClientMetadata(),
       });
     }
 
@@ -517,6 +545,23 @@ async function init() {
     }
   } catch (err) {
     console.error('OAuth init failed', err);
+    showLoginError("OAuth init failed. Refresh the page.");
+  }
+
+  if (!isLoopback && !agent) {
+    try {
+      const res = await fetch(getAppBase() + '/oauth/client-metadata.json');
+      if (res.ok) {
+        const text = await res.text();
+        if (text.includes('YOUR_GITHUB_PAGES_BASE')) {
+          showLoginError(
+            'Sign-in won’t work until Bluesky can load your app’s metadata. Run: GITHUB_PAGES_BASE=' +
+              getAppBase() +
+              ' node scripts/generate-oauth-metadata.js  then push the updated oauth/client-metadata.json. See README.'
+          );
+        }
+      }
+    } catch (_) {}
   }
 
   loadFeed();

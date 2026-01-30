@@ -11,19 +11,22 @@ Designed to look like a simple iOS app: dark theme, safe areas, bottom tab bar, 
 
 ## Host on GitHub Pages
 
-1. **Edit OAuth client metadata**  
-   Open `oauth/client-metadata.json` and replace every `YOUR_GITHUB_PAGES_BASE` with your site’s base URL (no trailing slash), e.g. `https://yourusername.github.io/skytry`.
+1. **Generate OAuth client metadata** (required for sign-in to work)  
+   Bluesky’s OAuth server loads your app’s metadata from a URL. That file must contain your real site URL. From the repo root, run:
 
-   So:
-   - `client_id` becomes `https://yourusername.github.io/skytry/oauth/client-metadata.json`
-   - `client_uri` becomes `https://yourusername.github.io/skytry/`
-   - `redirect_uris` becomes `["https://yourusername.github.io/skytry/"]`
+   ```bash
+   GITHUB_PAGES_BASE=https://YOUR_USERNAME.github.io/skytry node scripts/generate-oauth-metadata.js
+   ```
 
-2. Push this repo to GitHub.
+   Replace `YOUR_USERNAME` and `skytry` with your GitHub username and repo name. This overwrites `oauth/client-metadata.json` with the correct `client_id` and `redirect_uris`.
+
+2. Push this repo to GitHub (including the updated `oauth/client-metadata.json`).
 
 3. **Settings → Pages** → Source: **Deploy from a branch** → Branch: `main`, folder: **/ (root)** → Save.
 
 4. Open `https://<username>.github.io/skytry/` and use **Sign in with Bluesky**. You’ll be sent to Bluesky’s OAuth page to authorize; no app password needed.
+
+   If sign-in does nothing or fails, the app will show a message: run the script above with your real site URL, commit the new `oauth/client-metadata.json`, and push again.
 
 ## Local development
 
